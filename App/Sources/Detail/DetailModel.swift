@@ -346,6 +346,9 @@ final class DetailModel {
         isFollowing = true
         player.seek(to: t)
         refreshHighlight(at: t)
+        // Bring the target text into view even when the highlighted cue did not change
+        // (e.g. the user had scrolled the transcript away).
+        if let cue = currentCueID { textController?.scrollToCue(cue, animated: true) }
         if play { player.play() }
     }
 

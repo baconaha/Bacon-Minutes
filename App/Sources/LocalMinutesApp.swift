@@ -53,7 +53,7 @@ struct RootView: View {
             ImportDialog(app: app)
         }
         .background(WindowAccessor { window in
-            app.mainWindow = window
+            app.attachWindow(window)
             window?.isMovableByWindowBackground = false
             window?.titlebarAppearsTransparent = true
         })

@@ -68,6 +68,9 @@ final class AppModel {
     var renameText = ""
 
     @ObservationIgnored weak var mainWindow: NSWindow?
+    /// Traffic-light buttons are hidden in full screen, so top bars can start at the left edge.
+    var isWindowFullScreen = false
+    @ObservationIgnored private var fullScreenObservers: [NSObjectProtocol] = []
     @ObservationIgnored private var toastTask: Task<Void, Never>?
     private let keyMonitor: KeyMonitor
     @ObservationIgnored private var terminateObserver: NSObjectProtocol?
@@ -85,6 +88,22 @@ final class AppModel {
             }
         }
         Task { await library.load() }
+    }
+
+    func attachWindow(_ window: NSWindow?) {
+        guard let window, window !== mainWindow else { return }
+        mainWindow = window
+        isWindowFullScreen = window.styleMask.contains(.fullScreen)
+        for o in fullScreenObservers { NotificationCenter.default.removeObserver(o) }
+        let center = NotificationCenter.default
+        fullScreenObservers = [
+            center.addObserver(forName: NSWindow.willEnterFullScreenNotification, object: window, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.isWindowFullScreen = true }
+            },
+            center.addObserver(forName: NSWindow.willExitFullScreenNotification, object: window, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.isWindowFullScreen = false }
+            },
+        ]
     }
 
     // MARK: Navigation

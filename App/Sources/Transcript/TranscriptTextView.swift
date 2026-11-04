@@ -42,7 +42,9 @@ final class TranscriptTextController: NSObject {
     init(model: DetailModel) {
         let storage = NSTextStorage()
         let layout = NSLayoutManager()
-        layout.allowsNonContiguousLayout = true
+        // Full layout: non-contiguous layout estimates the height of unlaid text, which put
+        // far-away scroll targets in the wrong place and left blank gaps after resizing.
+        layout.allowsNonContiguousLayout = false
         storage.addLayoutManager(layout)
         let container = NSTextContainer(size: NSSize(width: 480, height: CGFloat.greatestFiniteMagnitude))
         container.widthTracksTextView = true
@@ -111,13 +113,15 @@ final class TranscriptTextController: NSObject {
         let clip = scrollView.contentView
         let savedOrigin = clip.bounds.origin
         textView.textStorage?.setAttributedString(document?.attributed ?? NSAttributedString())
+        scrollView.syncDocumentWidth()
+        if let lm = textView.layoutManager, let tc = textView.textContainer { lm.ensureLayout(for: tc) }
         cueRange = nil
         charRange = nil
         hitRanges = model.searchHits.map(\.range)
         currentHit = model.searchHits.isEmpty ? nil : model.currentHitIndex
         repaintAll()
         if savedOrigin.y > 0 {
-            clip.setBoundsOrigin(savedOrigin)
+            clip.setBoundsOrigin(NSPoint(x: 0, y: savedOrigin.y))
             scrollView.reflectScrolledClipView(clip)
         }
         // Highlight state lives in the observable model; update it outside the SwiftUI view update.
@@ -234,10 +238,13 @@ final class TranscriptTextController: NSObject {
         guard let rect = rect(forCharacterRange: range) else { return }
         let clip = scrollView.contentView
         let visibleHeight = clip.bounds.height
-        let docHeight = textView.frame.height
+        var docHeight = textView.frame.height
+        if let lm = textView.layoutManager, let tc = textView.textContainer {
+            docHeight = max(docHeight, lm.usedRect(for: tc).maxY + textView.textContainerInset.height * 2)
+        }
         var y = rect.minY - visibleHeight / 3
         y = max(0, min(y, max(0, docHeight - visibleHeight)))
-        let target = NSPoint(x: clip.bounds.origin.x, y: y)
+        let target = NSPoint(x: 0, y: y)
         guard abs(clip.bounds.origin.y - y) > 1 else { return }
         if animated {
             NSAnimationContext.runAnimationGroup({ ctx in
@@ -319,6 +326,26 @@ final class TranscriptTextController: NSObject {
 /// Reports wheel / trackpad scrolling, which programmatic scrolling never produces.
 final class TranscriptScrollView: NSScrollView {
     var onUserScroll: (() -> Void)?
+
+    /// Keeps the text view exactly as wide as the visible area so paragraphs re-wrap on resize
+    /// and never scroll sideways.
+    func syncDocumentWidth() {
+        guard let tv = documentView as? NSTextView else { return }
+        let width = contentSize.width
+        if width > 0, abs(tv.frame.width - width) > 0.5 {
+            tv.setFrameSize(NSSize(width: width, height: tv.frame.height))
+        }
+        let origin = contentView.bounds.origin
+        if origin.x != 0 {
+            contentView.setBoundsOrigin(NSPoint(x: 0, y: origin.y))
+            reflectScrolledClipView(contentView)
+        }
+    }
+
+    override func tile() {
+        super.tile()
+        syncDocumentWidth()
+    }
 
     override func scrollWheel(with event: NSEvent) {
         onUserScroll?()

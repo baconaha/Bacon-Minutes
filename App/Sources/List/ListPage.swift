@@ -50,7 +50,7 @@ private struct ListSidebar: View {
                     .foregroundStyle(Color.textPrimary)
             }
             .padding(.horizontal, 16)
-            .padding(.top, 40)
+            .padding(.top, app.isWindowFullScreen ? 18 : 40)
             .padding(.bottom, 20)
 
             ForEach(ListSection.allCases) { s in
@@ -234,22 +234,18 @@ private struct ListContent: View {
     @ViewBuilder
     private var sortMenu: some View {
         if app.section == .all {
-            Menu {
-                ForEach(ListSort.allCases) { s in
-                    Button {
-                        app.sort = s
-                    } label: {
-                        if app.sort == s { Label(s.title, systemImage: "checkmark") } else { Text(s.title) }
-                    }
+            DropdownButton(minWidth: 140, items: {
+                ListSort.allCases.map { sort in
+                    DropdownItem.button(sort.title, selected: app.sort == sort) { app.sort = sort }
                 }
-            } label: {
+            }) { _ in
                 HStack(spacing: 4) {
                     Text(app.sort == .created ? "创建时间" : "最近打开")
                     Image(systemName: "chevron.down").font(.system(size: 9))
                 }
+                .contentShape(Rectangle())
             }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
+            .buttonStyle(.plain)
             .fixedSize()
         } else {
             Text("最近打开")
@@ -314,15 +310,19 @@ private struct ImportMenuButton: View {
     let app: AppModel
 
     var body: some View {
-        Menu {
-            Button("导入音视频与字幕…") { app.presentImportDialog() }
-            Button("批量导入文件夹…") { app.importFolder() }
-        } label: {
-            Label("导入", systemImage: "plus")
+        DropdownButton(alignment: .trailing, minWidth: 200, items: {
+            [
+                .button("导入音视频与字幕…", icon: "doc.badge.plus") { app.presentImportDialog() },
+                .button("批量导入文件夹…", icon: "folder") { app.importFolder() },
+            ]
+        }) { _ in
+            HStack(spacing: 6) {
+                Image(systemName: "plus").font(.system(size: 12, weight: .semibold))
+                Text("导入")
+                Image(systemName: "chevron.down").font(.system(size: 10, weight: .semibold))
+            }
         }
-        .menuStyle(.button)
-        .buttonStyle(.borderedProminent)
-        .tint(Color.brand)
+        .buttonStyle(PrimaryButtonStyle())
         .fixedSize()
     }
 }

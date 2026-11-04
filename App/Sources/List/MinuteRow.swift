@@ -99,17 +99,15 @@ struct MinuteRow: View {
     }
 
     private var actionsMenu: some View {
-        Menu {
-            menuItems
-        } label: {
-            Image(systemName: "ellipsis")
-                .font(.system(size: 14))
-                .foregroundStyle(Color.textSecondary)
-                .frame(width: 28, height: 28)
+        MoreMenuButton(help: "操作") {
+            [
+                .button("重命名", icon: "pencil") { app.beginRename(minute.id) },
+                .button("在 Finder 中显示媒体", icon: "folder") { app.revealMedia(minute.id) },
+                .button("重新导入 SRT…", icon: "captions.bubble") { app.reimportSRT(minute.id) },
+                .divider,
+                .button("移到回收站", icon: "trash", destructive: true) { app.moveToTrash([minute.id]) },
+            ]
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
     }
 }
 

@@ -266,19 +266,21 @@ struct PlayerControls: View {
 
                 Spacer()
 
-                Button { showRate.toggle() } label: {
+                DropdownButton(placement: .above, alignment: .center, style: .dark, minWidth: 96,
+                               onOpenChange: { showRate = $0 }, items: {
+                    PlayerController.rates.map { r in
+                        DropdownItem.button(RateMenu.label(r), selected: r == player.rate) {
+                            player.setRate(r)
+                            model.settings.general.playbackRate = r
+                        }
+                    }
+                }) { _ in
                     Text(verbatim: RateMenu.label(player.rate))
                         .font(.system(size: 13, weight: .semibold))
                         .frame(minWidth: 36)
                 }
                 .buttonStyle(PlayerIconStyle(width: 44))
-                .popover(isPresented: $showRate, arrowEdge: .top) {
-                    RateMenu(current: player.rate) { r in
-                        player.setRate(r)
-                        model.settings.general.playbackRate = r
-                        showRate = false
-                    }
-                }
+                .help("播放倍率")
 
                 Button { model.settings.general.ccEnabled.toggle() } label: {
                     CCBadge(on: model.settings.general.ccEnabled)
@@ -286,15 +288,18 @@ struct PlayerControls: View {
                 .buttonStyle(PlayerIconStyle(width: 36))
                 .help(model.settings.general.ccEnabled ? "关闭字幕" : "显示字幕")
 
-                Button { showMore.toggle() } label: { Image(systemName: "ellipsis") }
-                    .buttonStyle(PlayerIconStyle())
-                    .popover(isPresented: $showMore, arrowEdge: .top) {
-                        Toggle("跳过空白片段", isOn: Binding(
-                            get: { model.settings.general.skipBlankEnabled },
-                            set: { model.settings.general.skipBlankEnabled = $0 }))
-                            .toggleStyle(.switch)
-                            .padding(14)
-                    }
+                DropdownButton(placement: .above, alignment: .trailing, style: .dark, minWidth: 180,
+                               onOpenChange: { showMore = $0 }, items: {
+                    [
+                        .toggle("跳过空白片段", icon: "forward.end", isOn: model.settings.general.skipBlankEnabled) {
+                            model.settings.general.skipBlankEnabled.toggle()
+                        },
+                    ]
+                }) { _ in
+                    Image(systemName: "ellipsis")
+                }
+                .buttonStyle(PlayerIconStyle())
+                .help("更多")
 
                 Button { model.toggleFullscreen() } label: {
                     Image(systemName: model.isVideoFullscreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")

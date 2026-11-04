@@ -167,18 +167,12 @@ private struct SummaryContent: View {
                         .foregroundStyle(Color.textTertiary)
                         .lineLimit(1)
                     Spacer()
-                    Menu {
-                        Button("重新生成") { model.generateSummary() }
-                        Button("复制为 Markdown") { model.copySummaryMarkdown() }
-                    } label: {
-                        Image(systemName: "ellipsis")
-                            .font(.system(size: 14))
-                            .foregroundStyle(Color.textSecondary)
-                            .frame(width: 28, height: 28)
+                    MoreMenuButton {
+                        [
+                            .button("重新生成", icon: "arrow.clockwise") { model.generateSummary() },
+                            .button("复制为 Markdown", icon: "doc.on.doc") { model.copySummaryMarkdown() },
+                        ]
                     }
-                    .menuStyle(.borderlessButton)
-                    .menuIndicator(.hidden)
-                    .fixedSize()
                 }
                 .padding(.bottom, -12)
 

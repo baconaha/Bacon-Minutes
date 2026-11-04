@@ -77,20 +77,7 @@ struct TranscriptPanel: View {
                 .buttonStyle(TextLinkButtonStyle())
             }
 
-            Menu {
-                Button("导出 SRT") { model.export(.srt) }
-                Button("导出 TXT（带时间戳与发言人）") { model.export(.txt) }
-                Button("导出 Markdown（纪要 + 文字记录）") { model.export(.markdown) }
-            } label: {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 14))
-                    .foregroundStyle(Color.textSecondary)
-                    .frame(width: 28, height: 28)
-            }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .fixedSize()
-            .help("导出文字记录")
+            MoreMenuButton(help: "导出文字记录") { exportMenuItems(for: model) }
         }
     }
 }

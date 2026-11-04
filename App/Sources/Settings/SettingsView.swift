@@ -112,11 +112,15 @@ struct APISettingsForm: View {
             Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 12, verticalSpacing: 12) {
                 GridRow {
                     label("服务商预设")
-                    Picker("", selection: presetBinding) {
-                        ForEach(ProviderPreset.all) { p in Text(p.name).tag(p.id) }
+                    DropdownButton(minWidth: 260, items: {
+                        ProviderPreset.all.map { p in
+                            DropdownItem.button(p.name, selected: p.id == settings.llm.presetID) { presetBinding.wrappedValue = p.id }
+                        }
+                    }) { open in
+                        SelectField(text: settings.currentPreset?.name ?? "自定义", open: open)
                     }
-                    .labelsHidden()
-                    .frame(maxWidth: 260, alignment: .leading)
+                    .buttonStyle(.plain)
+                    .frame(width: 260, alignment: .leading)
                 }
                 GridRow {
                     label("协议")
@@ -163,16 +167,19 @@ struct APISettingsForm: View {
                                       text: $settings.llm.model)
                                 .textFieldStyle(.roundedBorder)
                             if !models.isEmpty {
-                                Menu {
-                                    ForEach(models, id: \.self) { m in
-                                        Button(m) { settings.llm.model = m }
+                                DropdownButton(alignment: .trailing, minWidth: 220, items: {
+                                    models.map { m in
+                                        DropdownItem.button(m, selected: m == settings.llm.model) { settings.llm.model = m }
                                     }
-                                } label: {
+                                }) { open in
                                     Image(systemName: "chevron.down")
+                                        .font(.system(size: 11, weight: .semibold))
+                                        .foregroundStyle(Color.textSecondary)
+                                        .frame(width: 26, height: 24)
+                                        .background(RoundedRectangle(cornerRadius: 5).fill(open ? Color.searchFill : Color.clear))
+                                        .contentShape(Rectangle())
                                 }
-                                .menuStyle(.borderlessButton)
-                                .menuIndicator(.hidden)
-                                .fixedSize()
+                                .buttonStyle(.plain)
                                 .help("从列表中选择")
                             }
                             Button(fetchingModels ? "获取中…" : "获取模型列表") { fetchModels() }
@@ -357,5 +364,30 @@ struct APISettingsForm: View {
                 testResult = (false, error.localizedDescription)
             }
         }
+    }
+}
+
+/// Text-field-looking trigger for a dropdown (provider preset).
+struct SelectField: View {
+    let text: String
+    let open: Bool
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text(text)
+                .font(.system(size: 13))
+                .foregroundStyle(Color.textPrimary)
+                .lineLimit(1)
+            Spacer(minLength: 8)
+            Image(systemName: "chevron.down")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(Color.textTertiary)
+                .rotationEffect(.degrees(open ? 180 : 0))
+        }
+        .padding(.horizontal, 10)
+        .frame(height: 28)
+        .background(RoundedRectangle(cornerRadius: 6).fill(Color.card))
+        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(open ? Color.brand : Color.divider))
+        .contentShape(Rectangle())
     }
 }

@@ -7,7 +7,8 @@ struct DetailView: View {
     @Bindable var model: DetailModel
     let app: AppModel
     @State private var dropTargeted = false
-    @State private var dragStartSplit: Double?
+    /// Split while the divider is being dragged; persisted once on release.
+    @State private var liveSplit: Double?
 
     var body: some View {
         Group {
@@ -42,15 +43,19 @@ struct DetailView: View {
         .onChange(of: model.settings.general.insertComma) { model.rebuildDocument() }
     }
 
+    private static let columnSpace = "detailColumns"
+
+    private static func clampSplit(_ v: Double) -> Double { min(max(v, 0.38), 0.7) }
+
     private var columns: some View {
         GeometryReader { geo in
             let total = geo.size.width
-            let split = min(max(app.settings.general.detailSplit, 0.38), 0.7)
-            let leftWidth = (total - 1) * split
+            let split = liveSplit ?? Self.clampSplit(app.settings.general.detailSplit)
+            let leftWidth = ((total - 1) * split).rounded()
             HStack(spacing: 0) {
                 VStack(spacing: 0) {
                     PlayerArea(model: model)
-                        .frame(width: leftWidth, height: min(leftWidth * 9 / 16, max(220, geo.size.height - 160)))
+                        .frame(width: leftWidth, height: min((leftWidth * 9 / 16).rounded(), max(220, geo.size.height - 160)))
                     LeftBottomPanel(model: model)
                 }
                 .frame(width: leftWidth)
@@ -58,20 +63,24 @@ struct DetailView: View {
 
                 SplitHandle()
                     .gesture(
-                        DragGesture(minimumDistance: 1)
+                        // Measured in the fixed column space, not relative to the moving handle,
+                        // so the divider follows the pointer without feedback jitter.
+                        DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.columnSpace))
                             .onChanged { g in
-                                let start = dragStartSplit ?? split
-                                if dragStartSplit == nil { dragStartSplit = split }
-                                let newSplit = (start * (total - 1) + g.translation.width) / max(total - 1, 1)
-                                app.settings.general.detailSplit = min(max(newSplit, 0.38), 0.7)
+                                liveSplit = Self.clampSplit(Double(g.location.x / max(total, 1)))
                             }
-                            .onEnded { _ in dragStartSplit = nil }
+                            .onEnded { _ in
+                                if let s = liveSplit { app.settings.general.detailSplit = s }
+                                liveSplit = nil
+                            }
                     )
 
                 RightCard(model: model)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+            .transaction { $0.animation = nil }
         }
+        .coordinateSpace(.named(Self.columnSpace))
     }
 
     private func handleDrop(_ urls: [URL]) {
@@ -94,9 +103,15 @@ private struct SplitHandle: View {
             .padding(.horizontal, 3)
             .contentShape(Rectangle())
             .padding(.horizontal, -3)
-            .onHover { inside in
-                hovering = inside
-                if inside { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
+            .onContinuousHover { phase in
+                switch phase {
+                case .active:
+                    if !hovering { hovering = true }
+                    NSCursor.resizeLeftRight.set()
+                case .ended:
+                    hovering = false
+                    NSCursor.arrow.set()
+                }
             }
     }
 }
@@ -188,35 +203,32 @@ private struct DetailTopBar: View {
 
             Spacer(minLength: 20)
 
-            Menu {
-                Button("导出 SRT") { model.export(.srt) }.disabled(model.transcript == nil)
-                Button("导出 TXT（带时间戳与发言人）") { model.export(.txt) }.disabled(model.transcript == nil)
-                Button("导出 Markdown（纪要 + 文字记录）") { model.export(.markdown) }
-            } label: {
+            DropdownButton(alignment: .trailing, items: { exportMenuItems(for: model) }) { _ in
                 Label("导出", systemImage: "square.and.arrow.up")
             }
-            .menuStyle(.button)
-            .buttonStyle(.borderedProminent)
-            .tint(Color.brand)
+            .buttonStyle(PrimaryButtonStyle())
             .fixedSize()
 
-            Menu {
-                Button("重新导入 SRT…") { model.chooseAndImportSRT() }
-                Button("更换媒体文件…") { model.relocateMedia() }
-                Button("在 Finder 中显示") { model.revealMedia() }
-                Divider()
-                Button("移到回收站") { app.moveToTrash([model.minute.id]) }
-            } label: {
+            DropdownButton(alignment: .trailing, items: {
+                [
+                    .button("重新导入 SRT…", icon: "captions.bubble") { model.chooseAndImportSRT() },
+                    .button("更换媒体文件…", icon: "film") { model.relocateMedia() },
+                    .button("在 Finder 中显示", icon: "folder") { model.revealMedia() },
+                    .divider,
+                    .button("移到回收站", icon: "trash", destructive: true) { app.moveToTrash([model.minute.id]) },
+                ]
+            }) { open in
                 Image(systemName: "ellipsis")
-                    .font(.system(size: 15))
+                    .font(.system(size: 15, weight: .medium))
                     .foregroundStyle(Color.textPrimary)
                     .frame(width: 30, height: 30)
+                    .background(RoundedRectangle(cornerRadius: 6).fill(open ? Color.searchFill : Color.clear))
+                    .contentShape(Rectangle())
             }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .fixedSize()
+            .buttonStyle(.plain)
+            .help("更多")
         }
-        .padding(.leading, 78)
+        .padding(.leading, app.isWindowFullScreen ? 16 : 80)
         .padding(.trailing, 16)
     }
 
@@ -230,4 +242,15 @@ private struct DetailTopBar: View {
         editingTitle = false
         model.renameTitle(titleDraft)
     }
+}
+
+/// Shared by the top bar "导出" button and the transcript "···" menu (§2, §5.1).
+@MainActor
+func exportMenuItems(for model: DetailModel) -> [DropdownItem] {
+    let noTranscript = model.transcript == nil
+    return [
+        .button("导出 SRT", icon: "captions.bubble", disabled: noTranscript) { model.export(.srt) },
+        .button("导出 TXT（带时间戳与发言人）", icon: "doc.plaintext", disabled: noTranscript) { model.export(.txt) },
+        .button("导出 Markdown（纪要 + 文字记录）", icon: "doc.richtext") { model.export(.markdown) },
+    ]
 }
