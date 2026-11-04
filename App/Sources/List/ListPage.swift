@@ -155,8 +155,6 @@ private struct FolderRow: View {
     let folder: Folder
     @State private var hovering = false
     @State private var dropTargeted = false
-    @State private var draft = ""
-    @FocusState private var focused: Bool
 
     private var selected: Bool { app.section == .folder(folder.id) }
     private var editing: Bool { app.renamingFolderID == folder.id }
@@ -167,17 +165,7 @@ private struct FolderRow: View {
                 .font(.system(size: 14))
                 .frame(width: 18)
             if editing {
-                TextField(L("文件夹名称"), text: $draft)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 14))
-                    .focused($focused)
-                    .onSubmit { commit() }
-                    .onExitCommand { app.renamingFolderID = nil }
-                    .onChange(of: focused) { if !focused && editing { commit() } }
-                    .onAppear {
-                        draft = folder.name
-                        focused = true
-                    }
+                FolderNameField(app: app, folder: folder, selected: selected)
             } else {
                 Text(folder.name)
                     .font(.system(size: 14))
@@ -233,10 +221,6 @@ private struct FolderRow: View {
         ]
     }
 
-    private func commit() {
-        app.renameFolder(folder.id, to: draft)
-    }
-
     /// Minute rows are dragged as their id strings (one per line).
     private func handleDrop(_ providers: [NSItemProvider]) -> Bool {
         guard let provider = providers.first(where: { $0.canLoadObject(ofClass: NSString.self) }) else { return false }
@@ -249,6 +233,35 @@ private struct FolderRow: View {
             }
         }
         return true
+    }
+}
+
+/// Inline name editor for a folder: starts with the name selected; Return or a click anywhere
+/// else saves, Esc keeps the old name.
+private struct FolderNameField: View {
+    let app: AppModel
+    let folder: Folder
+    let selected: Bool
+    @State private var draft: String
+
+    init(app: AppModel, folder: Folder, selected: Bool) {
+        self.app = app
+        self.folder = folder
+        self.selected = selected
+        _draft = State(initialValue: folder.name)
+    }
+
+    var body: some View {
+        InlineTextField(text: $draft, font: .systemFont(ofSize: 14),
+                        textColor: selected ? Palette.brand : Palette.textPrimary,
+                        placeholder: L("文件夹名称"), autoFocus: true) { cancelled in
+            if cancelled {
+                app.renamingFolderID = nil
+            } else {
+                app.renameFolder(folder.id, to: draft)
+            }
+        }
+        .frame(height: 20)
     }
 }
 
