@@ -34,6 +34,13 @@ jobs:
         run: |
           APP="build/Build/Products/Release/Bacon Minutes.app"
           codesign --verify --verbose "$APP"
+          # Every UI language must ship its strings table and localized app name.
+          for l in en ja ko es vi fr pt ru; do
+            plutil -lint "$APP/Contents/Resources/$l.lproj/Localizable.strings"
+            plutil -lint "$APP/Contents/Resources/$l.lproj/InfoPlist.strings"
+          done
+          plutil -p "$APP/Contents/Resources/zh-Hans.lproj/InfoPlist.strings"
+          plutil -extract "全部" raw "$APP/Contents/Resources/ja.lproj/Localizable.strings"
           mkdir -p dist/stage
           cp -R "$APP" dist/stage/
           ln -s /Applications dist/stage/Applications
