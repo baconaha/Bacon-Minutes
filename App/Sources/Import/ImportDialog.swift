@@ -8,7 +8,7 @@ struct ImportDialog: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             HStack {
-                Text("导入音视频文件")
+                Text(L("导入音视频文件"))
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(Color.textPrimary)
                 Spacer()
@@ -23,26 +23,26 @@ struct ImportDialog: View {
             if let id = app.currentFolderID, let folder = app.library.userFolder(id) {
                 HStack(spacing: 6) {
                     Image(systemName: "folder.fill").foregroundStyle(Color.brand)
-                    Text("将导入到「\(folder.name)」").foregroundStyle(Color.textSecondary)
+                    Text(L("将导入到「{0}」", folder.name)).foregroundStyle(Color.textSecondary)
                 }
                 .font(.system(size: 13))
             }
 
             VStack(spacing: 10) {
-                FileSlotRow(title: "媒体文件", url: app.importDraft.media, placeholder: "未选择（必选）") {
+                FileSlotRow(title: L("媒体文件"), url: app.importDraft.media, placeholder: L("未选择（必选）")) {
                     if let url = FilePanels.chooseMedia() { app.importDraft.media = url }
                 }
-                FileSlotRow(title: "字幕文件", url: app.importDraft.subtitle, placeholder: "未选择（可选，之后也能补导）") {
+                FileSlotRow(title: L("字幕文件"), url: app.importDraft.subtitle, placeholder: L("未选择（可选，之后也能补导）")) {
                     if let url = FilePanels.chooseSRT() { app.importDraft.subtitle = url }
                 }
             }
 
             HStack(spacing: 12) {
                 Spacer()
-                Button("取消") { app.showImportDialog = false }
+                Button(L("取消")) { app.showImportDialog = false }
                     .buttonStyle(SecondaryButtonStyle())
                     .keyboardShortcut(.cancelAction)
-                Button("导入") { app.importFromDialog() }
+                Button(L("导入")) { app.importFromDialog() }
                     .buttonStyle(PrimaryButtonStyle())
                     .disabled(app.importDraft.media == nil)
                     .keyboardShortcut(.defaultAction)
@@ -59,13 +59,13 @@ struct ImportDialog: View {
                 .font(.system(size: 36, weight: .light))
                 .foregroundStyle(Color.brand)
             HStack(spacing: 0) {
-                Text("将文件拖拽至此区域或 ")
+                Text(L("将文件拖拽至此区域或 "))
                     .foregroundStyle(Color.textSecondary)
-                Button("选择文件") { choose() }
+                Button(L("选择文件")) { choose() }
                     .buttonStyle(TextLinkButtonStyle(size: 14))
             }
             .font(.system(size: 14))
-            Text("媒体：mp4 / mov / m4v / mp3 / m4a / wav / aac　字幕：srt")
+            Text(L("媒体：mp4 / mov / m4v / mp3 / m4a / wav / aac　字幕：srt"))
                 .font(.system(size: 12))
                 .foregroundStyle(Color.textTertiary)
         }
@@ -83,7 +83,7 @@ struct ImportDialog: View {
     }
 
     private func choose() {
-        let urls = FilePanels.chooseFiles(message: "选择音视频文件，可同时选择对应的 SRT 字幕")
+        let urls = FilePanels.chooseFiles(message: L("选择音视频文件，可同时选择对应的 SRT 字幕"))
         if !urls.isEmpty { accept(urls) }
     }
 
@@ -128,7 +128,7 @@ private struct FileSlotRow: View {
                     .foregroundStyle(Color.textTertiary)
             }
             Spacer()
-            Button(url == nil ? "选择" : "更换", action: change)
+            Button(url == nil ? L("选择") : L("更换"), action: change)
                 .buttonStyle(TextLinkButtonStyle())
         }
         .padding(.horizontal, 12)

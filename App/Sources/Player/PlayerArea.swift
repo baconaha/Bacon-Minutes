@@ -197,7 +197,7 @@ struct MissingMediaView: View {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.system(size: 28))
                 .foregroundStyle(Color.white.opacity(0.8))
-            Text("找不到媒体文件")
+            Text(L("找不到媒体文件"))
                 .font(.system(size: 15, weight: .medium))
                 .foregroundStyle(.white)
             Text(fileName)
@@ -206,9 +206,9 @@ struct MissingMediaView: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .padding(.horizontal, 40)
-            Button("重新定位", action: relocate)
+            Button(L("重新定位"), action: relocate)
                 .buttonStyle(PrimaryButtonStyle(compact: true))
-            Text("文字记录与纪要仍可正常使用")
+            Text(L("文字记录与纪要仍可正常使用"))
                 .font(.system(size: 12))
                 .foregroundStyle(Color.white.opacity(0.5))
         }
@@ -250,14 +250,14 @@ struct PlayerControls: View {
                     Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
                 }
                 .buttonStyle(PlayerIconStyle())
-                .help(player.isPlaying ? "暂停" : "播放")
+                .help(player.isPlaying ? L("暂停") : L("播放"))
 
                 Button { player.skip(by: -15) } label: { Image(systemName: "gobackward.15") }
                     .buttonStyle(PlayerIconStyle())
-                    .help("后退 15 秒")
+                    .help(L("后退 15 秒"))
                 Button { player.skip(by: 15) } label: { Image(systemName: "goforward.15") }
                     .buttonStyle(PlayerIconStyle())
-                    .help("前进 15 秒")
+                    .help(L("前进 15 秒"))
 
                 VolumeControl(model: model)
 
@@ -280,18 +280,18 @@ struct PlayerControls: View {
                         .frame(minWidth: 36)
                 }
                 .buttonStyle(PlayerIconStyle(width: 44))
-                .help("播放倍率")
+                .help(L("播放倍率"))
 
                 Button { model.settings.general.ccEnabled.toggle() } label: {
                     CCBadge(on: model.settings.general.ccEnabled)
                 }
                 .buttonStyle(PlayerIconStyle(width: 36))
-                .help(model.settings.general.ccEnabled ? "关闭字幕" : "显示字幕")
+                .help(model.settings.general.ccEnabled ? L("关闭字幕") : L("显示字幕"))
 
                 DropdownButton(placement: .above, alignment: .trailing, style: .dark, minWidth: 180,
                                onOpenChange: { showMore = $0 }, items: {
                     [
-                        .toggle("跳过空白片段", icon: "forward.end", isOn: model.settings.general.skipBlankEnabled) {
+                        .toggle(L("跳过空白片段"), icon: "forward.end", isOn: model.settings.general.skipBlankEnabled) {
                             model.settings.general.skipBlankEnabled.toggle()
                         },
                     ]
@@ -299,13 +299,13 @@ struct PlayerControls: View {
                     Image(systemName: "ellipsis")
                 }
                 .buttonStyle(PlayerIconStyle())
-                .help("更多")
+                .help(L("更多"))
 
                 Button { model.toggleFullscreen() } label: {
                     Image(systemName: model.isVideoFullscreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
                 }
                 .buttonStyle(PlayerIconStyle())
-                .help(model.isVideoFullscreen ? "退出全屏" : "全屏")
+                .help(model.isVideoFullscreen ? L("退出全屏") : L("全屏"))
             }
             .padding(.horizontal, 12)
             .padding(.bottom, 8)
@@ -368,14 +368,17 @@ private struct RateMenu: View {
 
 struct PlayerIconStyle: ButtonStyle {
     var width: CGFloat = 32
+    /// Set when the caller tracks hover itself (its own `.onHover` would shadow the style's).
+    var highlighted: Bool?
 
     func makeBody(configuration: Configuration) -> some View {
-        PlayerIconBody(configuration: configuration, width: width)
+        PlayerIconBody(configuration: configuration, width: width, highlighted: highlighted)
     }
 
     private struct PlayerIconBody: View {
         let configuration: ButtonStyleConfiguration
         let width: CGFloat
+        let highlighted: Bool?
         @State private var hovering = false
 
         var body: some View {
@@ -383,7 +386,7 @@ struct PlayerIconStyle: ButtonStyle {
                 .font(.system(size: 16))
                 .foregroundStyle(.white)
                 .frame(width: width, height: 32)
-                .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(hovering ? 0.15 : 0)))
+                .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity((highlighted ?? hovering) ? 0.15 : 0)))
                 .opacity(configuration.isPressed ? 0.7 : 1)
                 .contentShape(Rectangle())
                 .onHover { hovering = $0 }
@@ -395,6 +398,7 @@ struct PlayerIconStyle: ButtonStyle {
 private struct VolumeControl: View {
     @Bindable var model: DetailModel
     @State private var visible = false
+    @State private var overButton = false
     @State private var hideTask: Task<Void, Never>?
 
     private var player: PlayerController { model.player }
@@ -403,8 +407,12 @@ private struct VolumeControl: View {
         Button { player.toggleMute() } label: {
             Image(systemName: player.isMuted || player.volume == 0 ? "speaker.slash.fill" : "speaker.wave.2.fill")
         }
-        .buttonStyle(PlayerIconStyle())
-        .onHover { hovering($0) }
+        // Highlighted like the other buttons, and kept lit while the slider is open.
+        .buttonStyle(PlayerIconStyle(highlighted: overButton || visible))
+        .onHover { inside in
+            overButton = inside
+            hovering(inside)
+        }
         .overlay(alignment: .bottom) {
             if visible {
                 VerticalSlider(value: Double(player.isMuted ? 0 : player.volume)) { v in

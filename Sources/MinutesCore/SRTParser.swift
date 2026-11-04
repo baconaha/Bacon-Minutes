@@ -10,7 +10,7 @@ enum SRTParseError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .empty: return "文件中没有可识别的字幕条目（需要形如 00:00:01,000 --> 00:00:02,000 的时间行）"
+        case .empty: return L("文件中没有可识别的字幕条目（需要形如 00:00:01,000 --> 00:00:02,000 的时间行）")
         }
     }
 }
@@ -144,6 +144,7 @@ enum SRTParser {
         cues.reserveCapacity(order.count)
         var speakerOrder: [String] = []
         var seen = Set<String>()
+        let hasPrefixes = pending.contains { $0.candidate != nil }
         for (newIndex, oldIndex) in order.enumerated() {
             let p = pending[oldIndex]
             let speakerID = p.candidate?.id ?? fallbackSpeakerID
@@ -154,7 +155,9 @@ enum SRTParser {
             cues.append(Cue(id: newIndex, start: p.start, end: p.end, text: p.text, speakerID: speakerID))
         }
         let speakers = speakerOrder.enumerated().map { idx, id in
-            Speaker(id: id, name: id, colorHex: SpeakerPalette.color(at: idx))
+            // Files without speaker prefixes get one speaker, named in the UI language.
+            Speaker(id: id, name: id == fallbackSpeakerID && !hasPrefixes ? L("说话人 {0}", 1) : id,
+                    colorHex: SpeakerPalette.color(at: idx))
         }
         return SRTParseResult(cues: cues, speakers: speakers)
     }

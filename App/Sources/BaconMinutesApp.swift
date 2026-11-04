@@ -2,12 +2,18 @@ import AppKit
 import SwiftUI
 
 @main
-struct LocalMinutesApp: App {
+struct BaconMinutesApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
-    @State private var app = AppModel()
+    @State private var app: AppModel
+
+    init() {
+        // Before any model or view builds text.
+        LanguagePreference.applyAtLaunch()
+        _app = State(initialValue: AppModel())
+    }
 
     var body: some Scene {
-        Window("本地妙记", id: "main") {
+        Window(L("培根妙记"), id: "main") {
             RootView(app: app)
         }
         .windowStyle(.hiddenTitleBar)
@@ -92,35 +98,35 @@ struct AppCommands: Commands {
 
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
-            Button("导入…") { app.presentImportDialog() }
+            Button(L("导入…")) { app.presentImportDialog() }
                 .keyboardShortcut("o", modifiers: .command)
-            Button("批量导入文件夹…") { app.importFolder() }
+            Button(L("批量导入文件夹…")) { app.importFolder() }
                 .keyboardShortcut("o", modifiers: [.command, .shift])
         }
         CommandGroup(replacing: .textEditing) {
-            Button("搜索") { app.focusSearch() }
+            Button(L("搜索")) { app.focusSearch() }
                 .keyboardShortcut("f", modifiers: .command)
         }
-        CommandMenu("妙记") {
-            Button("返回列表") { app.backToList() }
+        CommandMenu(L("妙记")) {
+            Button(L("返回列表")) { app.backToList() }
                 .keyboardShortcut("[", modifiers: .command)
                 .disabled(app.detail == nil)
             Divider()
-            Button("智能纪要") { app.detail?.rightTab = .summary }
+            Button(L("智能纪要")) { app.detail?.rightTab = .summary }
                 .keyboardShortcut("1", modifiers: .command)
                 .disabled(app.detail == nil)
-            Button("文字记录") { app.detail?.rightTab = .transcript }
+            Button(L("文字记录")) { app.detail?.rightTab = .transcript }
                 .keyboardShortcut("2", modifiers: .command)
                 .disabled(app.detail == nil)
             Divider()
-            Button("播放 / 暂停（空格）") { app.detail?.player.togglePlay() }
+            Button(L("播放 / 暂停（空格）")) { app.detail?.player.togglePlay() }
                 .disabled(app.detail == nil)
-            Button("后退 15 秒（←）") { app.detail?.player.skip(by: -15) }
+            Button(L("后退 15 秒（←）")) { app.detail?.player.skip(by: -15) }
                 .disabled(app.detail == nil)
-            Button("前进 15 秒（→）") { app.detail?.player.skip(by: 15) }
+            Button(L("前进 15 秒（→）")) { app.detail?.player.skip(by: 15) }
                 .disabled(app.detail == nil)
             Divider()
-            Button("生成智能纪要") { app.detail?.generateSummary() }
+            Button(L("生成智能纪要")) { app.detail?.generateSummary() }
                 .disabled(app.detail?.transcript == nil)
         }
     }

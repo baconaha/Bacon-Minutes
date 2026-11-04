@@ -32,7 +32,7 @@ struct DetailView: View {
             if dropTargeted && !model.isVideoFullscreen {
                 RoundedRectangle(cornerRadius: 10)
                     .strokeBorder(Color.brand, style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
-                    .overlay(Text("松开以导入（SRT 将导入到当前妙记）").font(.system(size: 14, weight: .medium)).foregroundStyle(Color.brand))
+                    .overlay(Text(L("松开以导入（SRT 将导入到当前妙记）")).font(.system(size: 14, weight: .medium)).foregroundStyle(Color.brand))
                     .padding(10)
                     .allowsHitTesting(false)
             }
@@ -122,8 +122,8 @@ private struct RightCard: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 28) {
-                UnderlineTab(title: "智能纪要", selected: model.rightTab == .summary) { model.rightTab = .summary }
-                UnderlineTab(title: "文字记录", selected: model.rightTab == .transcript) { model.rightTab = .transcript }
+                UnderlineTab(title: L("智能纪要"), selected: model.rightTab == .summary) { model.rightTab = .summary }
+                UnderlineTab(title: L("文字记录"), selected: model.rightTab == .transcript) { model.rightTab = .transcript }
                 Spacer()
             }
             .padding(.horizontal, 20)
@@ -164,14 +164,14 @@ private struct DetailTopBar: View {
                 Image(systemName: "chevron.left").font(.system(size: 15, weight: .medium))
             }
             .buttonStyle(IconButtonStyle(size: 30, foreground: .textPrimary))
-            .help("返回列表（⌘[）")
+            .help(L("返回列表（⌘[）"))
 
             AppLogo(size: 32)
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 8) {
                     if editingTitle {
-                        TextField("标题", text: $titleDraft)
+                        TextField(L("标题"), text: $titleDraft)
                             .textFieldStyle(.plain)
                             .font(.system(size: 16, weight: .semibold))
                             .focused($titleFocused)
@@ -186,7 +186,7 @@ private struct DetailTopBar: View {
                             .lineLimit(1)
                             .truncationMode(.middle)
                             .onTapGesture(count: 2) { beginTitleEdit() }
-                            .help("双击修改标题")
+                            .help(L("双击修改标题"))
                     }
                     ForEach(Array(model.tags.enumerated()), id: \.offset) { _, tag in
                         TagLabel(text: tag.0, warning: tag.1)
@@ -195,7 +195,7 @@ private struct DetailTopBar: View {
                 HStack(spacing: 8) {
                     Text(TimeFormat.createdDate(model.minute.createdAt))
                     Rectangle().fill(Color.divider).frame(width: 1, height: 10)
-                    Text(TimeFormat.durationCN(model.duration))
+                    Text(TimeFormat.duration(model.duration))
                 }
                 .font(.system(size: 12))
                 .foregroundStyle(Color.textTertiary)
@@ -204,18 +204,18 @@ private struct DetailTopBar: View {
             Spacer(minLength: 20)
 
             DropdownButton(alignment: .trailing, items: { exportMenuItems(for: model) }) { _ in
-                Label("导出", systemImage: "square.and.arrow.up")
+                Label(L("导出"), systemImage: "square.and.arrow.up")
             }
             .buttonStyle(PrimaryButtonStyle())
             .fixedSize()
 
             DropdownButton(alignment: .trailing, items: {
                 [
-                    .button("重新导入 SRT…", icon: "captions.bubble") { model.chooseAndImportSRT() },
-                    .button("更换媒体文件…", icon: "film") { model.relocateMedia() },
-                    .button("在 Finder 中显示", icon: "folder") { model.revealMedia() },
+                    .button(L("重新导入 SRT…"), icon: "captions.bubble") { model.chooseAndImportSRT() },
+                    .button(L("更换媒体文件…"), icon: "film") { model.relocateMedia() },
+                    .button(L("在 Finder 中显示"), icon: "folder") { model.revealMedia() },
                     .divider,
-                    .button("移到回收站", icon: "trash", destructive: true) { app.requestMoveToTrash([model.minute.id]) },
+                    .button(L("移到回收站"), icon: "trash", destructive: true) { app.requestMoveToTrash([model.minute.id]) },
                 ]
             }) { open in
                 Image(systemName: "ellipsis")
@@ -226,7 +226,7 @@ private struct DetailTopBar: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .help("更多")
+            .help(L("更多"))
         }
         // The window buttons sit in their own strip above this bar, so it can start at the edge.
         .padding(.leading, 12)
@@ -250,8 +250,8 @@ private struct DetailTopBar: View {
 func exportMenuItems(for model: DetailModel) -> [DropdownItem] {
     let noTranscript = model.transcript == nil
     return [
-        .button("导出 SRT", icon: "captions.bubble", disabled: noTranscript) { model.export(.srt) },
-        .button("导出 TXT（带时间戳与发言人）", icon: "doc.plaintext", disabled: noTranscript) { model.export(.txt) },
-        .button("导出 Markdown（纪要 + 文字记录）", icon: "doc.richtext") { model.export(.markdown) },
+        .button(L("导出 SRT"), icon: "captions.bubble", disabled: noTranscript) { model.export(.srt) },
+        .button(L("导出 TXT（带时间戳与发言人）"), icon: "doc.plaintext", disabled: noTranscript) { model.export(.txt) },
+        .button(L("导出 Markdown（纪要 + 文字记录）"), icon: "doc.richtext") { model.export(.markdown) },
     ]
 }

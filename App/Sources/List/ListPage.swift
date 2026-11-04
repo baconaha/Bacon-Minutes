@@ -31,17 +31,17 @@ struct ListPage: View {
                     .allowsHitTesting(false)
             }
         }
-        .alert("重命名", isPresented: Binding(get: { app.renameTarget != nil },
+        .alert(L("重命名"), isPresented: Binding(get: { app.renameTarget != nil },
                                             set: { if !$0 { app.renameTarget = nil } })) {
-            TextField("标题", text: $app.renameText)
-            Button("确定") { app.commitRename() }
-            Button("取消", role: .cancel) { app.renameTarget = nil }
+            TextField(L("标题"), text: $app.renameText)
+            Button(L("确定")) { app.commitRename() }
+            Button(L("取消"), role: .cancel) { app.renameTarget = nil }
         }
     }
 
     private var dropText: String {
-        if let id = app.currentFolderID, let f = app.library.userFolder(id) { return "松开以导入到「\(f.name)」" }
-        return "松开以导入"
+        if let id = app.currentFolderID, let f = app.library.userFolder(id) { return L("松开以导入到「{0}」", f.name) }
+        return L("松开以导入")
     }
 }
 
@@ -54,7 +54,7 @@ private struct ListSidebar: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 10) {
                 AppLogo(size: 28)
-                Text("本地妙记")
+                Text(L("培根妙记"))
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(Color.textPrimary)
             }
@@ -70,7 +70,7 @@ private struct ListSidebar: View {
             }
 
             HStack {
-                Text("文件夹")
+                Text(L("文件夹"))
                     .font(.system(size: 12))
                     .foregroundStyle(Color.textTertiary)
                 Spacer()
@@ -78,8 +78,8 @@ private struct ListSidebar: View {
                     Image(systemName: "plus")
                         .font(.system(size: 12, weight: .semibold))
                 }
-                .buttonStyle(IconButtonStyle(size: 22, foreground: .textSecondary))
-                .help("新建文件夹")
+                .buttonStyle(IconButtonStyle(size: 22, foreground: .textSecondary, hoverFill: .card))
+                .help(L("新建文件夹"))
             }
             .padding(.leading, 12)
             .padding(.trailing, 4)
@@ -88,14 +88,6 @@ private struct ListSidebar: View {
 
             ScrollView {
                 VStack(spacing: 2) {
-                    if app.library.folders.isEmpty {
-                        Text("把妙记拖到文件夹里，或在文件夹中直接导入")
-                            .font(.system(size: 11))
-                            .foregroundStyle(Color.textTertiary)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
                     ForEach(app.library.folders) { folder in
                         FolderRow(app: app, folder: folder)
                     }
@@ -107,7 +99,7 @@ private struct ListSidebar: View {
                 .padding(.top, 10)
             Rectangle().fill(Color.divider).frame(height: 1).padding(.vertical, 8)
             SettingsLink {
-                SidebarItemLabel(title: "设置", icon: "gearshape", selected: false)
+                SidebarItemLabel(title: L("设置"), icon: "gearshape", selected: false)
             }
             .buttonStyle(.plain)
             .padding(.bottom, 14)
@@ -175,7 +167,7 @@ private struct FolderRow: View {
                 .font(.system(size: 14))
                 .frame(width: 18)
             if editing {
-                TextField("文件夹名称", text: $draft)
+                TextField(L("文件夹名称"), text: $draft)
                     .textFieldStyle(.plain)
                     .font(.system(size: 14))
                     .focused($focused)
@@ -194,7 +186,7 @@ private struct FolderRow: View {
             }
             Spacer(minLength: 4)
             if hovering {
-                MoreMenuButton(size: 22, help: "文件夹操作", openOnHover: false) { menuItems }
+                MoreMenuButton(size: 22, help: L("文件夹操作"), openOnHover: false) { menuItems }
             } else {
                 Text("\(app.library.stats(inFolder: folder.id).count)")
                     .font(.system(size: 12).monospacedDigit())
@@ -223,21 +215,21 @@ private struct FolderRow: View {
             handleDrop(providers)
         }
         .contextMenu {
-            Button("属性") { app.folderInfoTarget = folder.id }
-            Button("重命名") { app.renamingFolderID = folder.id }
-            Button("导入到此文件夹…") { app.importIntoFolder(folder.id) }
+            Button(L("属性")) { app.folderInfoTarget = folder.id }
+            Button(L("重命名")) { app.renamingFolderID = folder.id }
+            Button(L("导入到此文件夹…")) { app.importIntoFolder(folder.id) }
             Divider()
-            Button("删除文件夹") { app.requestDeleteFolder(folder.id) }
+            Button(L("删除文件夹")) { app.requestDeleteFolder(folder.id) }
         }
     }
 
     private var menuItems: [DropdownItem] {
         [
-            .button("属性", icon: "info.circle") { app.folderInfoTarget = folder.id },
-            .button("重命名", icon: "pencil") { app.renamingFolderID = folder.id },
-            .button("导入到此文件夹…", icon: "square.and.arrow.down") { app.importIntoFolder(folder.id) },
+            .button(L("属性"), icon: "info.circle") { app.folderInfoTarget = folder.id },
+            .button(L("重命名"), icon: "pencil") { app.renamingFolderID = folder.id },
+            .button(L("导入到此文件夹…"), icon: "square.and.arrow.down") { app.importIntoFolder(folder.id) },
             .divider,
-            .button("删除文件夹", icon: "trash", destructive: true) { app.requestDeleteFolder(folder.id) },
+            .button(L("删除文件夹"), icon: "trash", destructive: true) { app.requestDeleteFolder(folder.id) },
         ]
     }
 
@@ -265,9 +257,9 @@ private struct LibraryStatsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            row("妙记", "\(stats.count) 个")
-            row("总时长", stats.count > 0 ? AppModel.shortDuration(stats.duration) : "—")
-            row("总大小", AppModel.byteText(stats.bytes))
+            row(L("妙记"), L("{0} 个", stats.count))
+            row(L("总时长"), stats.count > 0 ? TimeFormat.roughDuration(stats.duration) : "—")
+            row(L("总大小"), AppModel.byteText(stats.bytes))
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
@@ -328,7 +320,7 @@ private struct ListContent: View {
         HStack(spacing: 8) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(Color.textTertiary)
-            TextField("搜索妙记", text: $app.listQuery)
+            TextField(L("搜索妙记"), text: $app.listQuery)
                 .textFieldStyle(.plain)
                 .font(.system(size: 13))
                 .focused($searchFocused)
@@ -361,7 +353,7 @@ private struct ListContent: View {
                 .lineLimit(1)
             if app.isImporting {
                 ProgressView().controlSize(.small).padding(.leading, 6)
-                Text("正在导入…").font(.system(size: 12)).foregroundStyle(Color.textTertiary)
+                Text(L("正在导入…")).font(.system(size: 12)).foregroundStyle(Color.textTertiary)
             }
             Spacer()
             if !isTrash { ImportMenuButton(app: app) }
@@ -381,34 +373,34 @@ private struct ListContent: View {
             }
             .opacity(items.isEmpty ? 0 : 1)
             if !selectedHere.isEmpty {
-                Text("已选 \(selectedHere.count) 项").font(.system(size: 13)).foregroundStyle(Color.textPrimary)
+                Text(L("已选 {0} 项", selectedHere.count)).font(.system(size: 13)).foregroundStyle(Color.textPrimary)
                 Text("·").foregroundStyle(Color.textTertiary)
                 if isTrash {
-                    Button("恢复") { app.restore(selectedHere) }.buttonStyle(TextLinkButtonStyle())
+                    Button(L("恢复")) { app.restore(selectedHere) }.buttonStyle(TextLinkButtonStyle())
                     Text("·").foregroundStyle(Color.textTertiary)
-                    Button("彻底删除") { app.deleteForever(selectedHere) }.buttonStyle(TextLinkButtonStyle())
+                    Button(L("彻底删除")) { app.deleteForever(selectedHere) }.buttonStyle(TextLinkButtonStyle())
                 } else {
-                    Button("移动到文件夹") { app.moveTarget = selectedHere }.buttonStyle(TextLinkButtonStyle())
+                    Button(L("移动到文件夹")) { app.moveTarget = selectedHere }.buttonStyle(TextLinkButtonStyle())
                     Text("·").foregroundStyle(Color.textTertiary)
-                    Button("移到回收站") { app.requestMoveToTrash(selectedHere) }.buttonStyle(TextLinkButtonStyle())
+                    Button(L("移到回收站")) { app.requestMoveToTrash(selectedHere) }.buttonStyle(TextLinkButtonStyle())
                 }
                 Text("·").foregroundStyle(Color.textTertiary)
-                Button("取消") { app.selection = [] }.buttonStyle(TextLinkButtonStyle())
+                Button(L("取消")) { app.selection = [] }.buttonStyle(TextLinkButtonStyle())
                 Spacer()
             } else {
-                Text("文件").frame(maxWidth: .infinity, alignment: .leading)
+                Text(L("文件")).frame(maxWidth: .infinity, alignment: .leading)
                 if isTrash {
-                    Text("删除时间").frame(width: 150, alignment: .leading)
-                    Text("剩余时间 ↓").frame(width: 90, alignment: .leading)
-                    Text("操作").frame(width: 130, alignment: .leading)
+                    Text(L("删除时间 ↓")).frame(width: 190, alignment: .leading)
+                    Text(L("操作")).frame(width: 220, alignment: .leading)
                 } else {
                     sortMenu.frame(width: 170, alignment: .leading)
-                    Text("操作").frame(width: 48, alignment: .leading)
+                    Text(L("操作")).frame(width: 48, alignment: .leading)
                 }
             }
         }
         .font(.system(size: 12))
         .foregroundStyle(Color.textTertiary)
+        .lineLimit(1)
         .padding(.horizontal, 36)
         .frame(height: 40)
     }
@@ -422,7 +414,7 @@ private struct ListContent: View {
                 }
             }) { _ in
                 HStack(spacing: 4) {
-                    Text(app.sort == .created ? "创建时间" : "最近打开")
+                    Text(app.sort == .created ? L("创建时间") : L("最近打开"))
                     Image(systemName: "chevron.down").font(.system(size: 9))
                 }
                 .contentShape(Rectangle())
@@ -430,7 +422,7 @@ private struct ListContent: View {
             .buttonStyle(.plain)
             .fixedSize()
         } else {
-            Text("最近打开")
+            Text(L("最近打开"))
         }
     }
 
@@ -467,10 +459,10 @@ private struct ListContent: View {
                 .font(.system(size: 14))
                 .foregroundStyle(Color.textTertiary)
             if !isTrash && app.listQuery.isEmpty && app.section != .recent {
-                Button("导入") { app.presentImportDialog() }
+                Button(L("导入")) { app.presentImportDialog() }
                     .buttonStyle(PrimaryButtonStyle())
-                Text(app.currentFolderID != nil ? "也可以把文件拖到这里，或把左侧「全部」里的妙记拖到这个文件夹"
-                                               : "也可以把音视频与 SRT 文件直接拖到这里")
+                Text(app.currentFolderID != nil ? L("也可以把文件拖到这里，或把左侧「全部」里的妙记拖到这个文件夹")
+                                               : L("也可以把音视频与 SRT 文件直接拖到这里"))
                     .font(.system(size: 12))
                     .foregroundStyle(Color.textTertiary)
             }
@@ -480,12 +472,12 @@ private struct ListContent: View {
     }
 
     private var emptyText: String {
-        if !app.listQuery.isEmpty { return "没有找到相关妙记" }
+        if !app.listQuery.isEmpty { return L("没有找到相关妙记") }
         switch app.section {
-        case .trash: return "回收站为空"
-        case .recent: return "还没有打开过妙记"
-        case .all: return "暂无妙记文件"
-        case .folder: return "这个文件夹还是空的"
+        case .trash: return L("回收站为空")
+        case .recent: return L("还没有打开过妙记")
+        case .all: return L("暂无妙记文件")
+        case .folder: return L("这个文件夹还是空的")
         }
     }
 }
@@ -496,13 +488,13 @@ private struct ImportMenuButton: View {
     var body: some View {
         DropdownButton(alignment: .trailing, minWidth: 200, items: {
             [
-                .button("导入音视频与字幕…", icon: "doc.badge.plus") { app.presentImportDialog() },
-                .button("批量导入文件夹…", icon: "folder.badge.plus") { app.importFolder() },
+                .button(L("导入音视频与字幕…"), icon: "doc.badge.plus") { app.presentImportDialog() },
+                .button(L("批量导入文件夹…"), icon: "folder.badge.plus") { app.importFolder() },
             ]
         }) { _ in
             HStack(spacing: 6) {
                 Image(systemName: "plus").font(.system(size: 12, weight: .semibold))
-                Text("导入")
+                Text(L("导入"))
                 Image(systemName: "chevron.down").font(.system(size: 10, weight: .semibold))
             }
         }

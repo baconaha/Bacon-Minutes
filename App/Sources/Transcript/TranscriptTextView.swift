@@ -359,6 +359,12 @@ final class TranscriptScrollView: NSScrollView {
         onUserScroll?()
         super.scrollWheel(with: event)
     }
+
+    /// Sentences are click targets, so the pointer is a hand rather than the text I-beam.
+    override var documentCursor: NSCursor? {
+        get { .pointingHand }
+        set {}
+    }
 }
 
 final class TranscriptNSTextView: NSTextView {
@@ -384,4 +390,17 @@ final class TranscriptNSTextView: NSTextView {
     }
 
     override var acceptsFirstResponder: Bool { true }
+
+    // Pointing hand instead of the I-beam: a click jumps to the sentence.
+    override func resetCursorRects() {
+        addCursorRect(visibleRect, cursor: .pointingHand)
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        NSCursor.pointingHand.set()
+    }
+
+    override func cursorUpdate(with event: NSEvent) {
+        NSCursor.pointingHand.set()
+    }
 }

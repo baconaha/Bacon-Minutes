@@ -9,7 +9,7 @@ struct SummaryPanel: View {
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             Rectangle().fill(Color.divider).frame(height: 1)
-            Text("智能纪要由 AI 生成，请谨慎使用")
+            Text(L("智能纪要由 AI 生成，请谨慎使用"))
                 .font(.system(size: 12))
                 .foregroundStyle(Color.textTertiary)
                 .padding(.vertical, 10)
@@ -35,28 +35,28 @@ struct SummaryPanel: View {
                 .padding(20)
             }
         } else if model.transcript == nil {
-            SummaryPlaceholder(icon: "text.bubble", title: "还没有文字记录",
-                               message: "导入 SRT 字幕后即可生成智能纪要") {
-                Button("导入 SRT 字幕") { model.chooseAndImportSRT() }
+            SummaryPlaceholder(icon: "text.bubble", title: L("还没有文字记录"),
+                               message: L("导入 SRT 字幕后即可生成智能纪要")) {
+                Button(L("导入 SRT 字幕")) { model.chooseAndImportSRT() }
                     .buttonStyle(PrimaryButtonStyle())
             }
         } else if !model.settings.isLLMReady {
             ScrollView {
                 VStack(spacing: 18) {
-                    SummaryPlaceholder(icon: "sparkles", title: "配置 API 后即可生成智能纪要",
-                                       message: "支持 OpenAI 兼容、Anthropic、Azure OpenAI 以及本地模型服务") { EmptyView() }
+                    SummaryPlaceholder(icon: "sparkles", title: L("配置 API 后即可生成智能纪要"),
+                                       message: L("支持 OpenAI 兼容、Anthropic、Azure OpenAI 以及本地模型服务")) { EmptyView() }
                         .frame(height: 220)
                     APISettingsForm(settings: model.settings, embedded: true)
-                    Button("保存并生成") { model.generateSummary() }
+                    Button(L("保存并生成")) { model.generateSummary() }
                         .buttonStyle(PrimaryButtonStyle())
                         .disabled(!model.settings.isLLMReady)
                 }
                 .padding(20)
             }
         } else {
-            SummaryPlaceholder(icon: "sparkles", title: "让 AI 帮你整理这段内容",
-                               message: "将生成总述、要点、待办、章节与关键词") {
-                Button("生成智能纪要") { model.generateSummary() }
+            SummaryPlaceholder(icon: "sparkles", title: L("让 AI 帮你整理这段内容"),
+                               message: L("将生成总述、要点、待办、章节与关键词")) {
+                Button(L("生成智能纪要")) { model.generateSummary() }
                     .buttonStyle(PrimaryButtonStyle())
             }
         }
@@ -103,7 +103,7 @@ private struct GeneratingView: View {
                 ProgressView().controlSize(.small)
                 Text(text).font(.system(size: 13)).foregroundStyle(Color.textSecondary)
                 Spacer()
-                Button("取消", action: cancel).buttonStyle(TextLinkButtonStyle())
+                Button(L("取消"), action: cancel).buttonStyle(TextLinkButtonStyle())
             }
             ForEach(0..<2, id: \.self) { _ in
                 VStack(alignment: .leading, spacing: 12) {
@@ -131,14 +131,14 @@ private struct ErrorCard: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 6) {
                 Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Color.errorText)
-                Text("生成失败").font(.system(size: 14, weight: .semibold)).foregroundStyle(Color.textPrimary)
+                Text(L("生成失败")).font(.system(size: 14, weight: .semibold)).foregroundStyle(Color.textPrimary)
             }
             Text(message)
                 .font(.system(size: 13))
                 .foregroundStyle(Color.textSecondary)
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
-            Button("重试", action: retry).buttonStyle(PrimaryButtonStyle(compact: true))
+            Button(L("重试"), action: retry).buttonStyle(PrimaryButtonStyle(compact: true))
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -171,8 +171,8 @@ private struct SummaryContent: View {
                     Spacer()
                     MoreMenuButton {
                         [
-                            .button("重新生成", icon: "arrow.clockwise") { model.generateSummary() },
-                            .button("复制为 Markdown", icon: "doc.on.doc") { model.copySummaryMarkdown() },
+                            .button(L("重新生成"), icon: "arrow.clockwise") { model.generateSummary() },
+                            .button(L("复制为 Markdown"), icon: "doc.on.doc") { model.copySummaryMarkdown() },
                         ]
                     }
                 }
@@ -198,8 +198,8 @@ private struct StaleBanner: View {
     var body: some View {
         HStack(spacing: 6) {
             Image(systemName: "exclamationmark.circle.fill").foregroundStyle(Color.warningText)
-            Text("文字记录已变更，纪要可能过期 ·").foregroundStyle(Color.warningText)
-            Button("重新生成", action: regenerate).buttonStyle(TextLinkButtonStyle(size: 12))
+            Text(L("文字记录已变更，纪要可能过期 ·")).foregroundStyle(Color.warningText)
+            Button(L("重新生成"), action: regenerate).buttonStyle(TextLinkButtonStyle(size: 12))
             Spacer()
         }
         .font(.system(size: 12))
@@ -217,10 +217,10 @@ private struct FeedbackButtons: View {
         HStack(spacing: 4) {
             Button { set(1) } label: { Image(systemName: value == 1 ? "hand.thumbsup.fill" : "hand.thumbsup") }
                 .buttonStyle(IconButtonStyle(size: 24, foreground: value == 1 ? .brand : .textTertiary))
-                .help("有帮助")
+                .help(L("有帮助"))
             Button { set(-1) } label: { Image(systemName: value == -1 ? "hand.thumbsdown.fill" : "hand.thumbsdown") }
                 .buttonStyle(IconButtonStyle(size: 24, foreground: value == -1 ? .brand : .textTertiary))
-                .help("没帮助")
+                .help(L("没帮助"))
         }
     }
 }
@@ -247,7 +247,7 @@ private struct MeetingCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            CardTitle(title: "会议纪要") {
+            CardTitle(title: L("会议纪要")) {
                 Rectangle().fill(Color.divider).frame(width: 1, height: 14)
                 FeedbackButtons(value: summary.feedback) { model.setFeedback($0, chapters: false) }
             }
@@ -274,11 +274,11 @@ private struct MeetingCard: View {
             }
 
             VStack(alignment: .leading, spacing: 8) {
-                Text("待办")
+                Text(L("待办"))
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(Color.textPrimary)
                 if summary.todos.isEmpty {
-                    Text("本场会议无待办内容")
+                    Text(L("本场会议无待办内容"))
                         .font(.system(size: 13))
                         .foregroundStyle(Color.textTertiary)
                 } else {
@@ -315,7 +315,7 @@ private struct MeetingCard: View {
             .font(.system(size: 14))
             .foregroundStyle(Color.textPrimary)
         guard !kp.title.isEmpty else { return body }
-        let title = Text(kp.title + "：")
+        let title = Text(kp.title + L("："))
             .font(.system(size: 14, weight: .semibold))
             .foregroundStyle(Color.textPrimary)
         return title + body
@@ -352,7 +352,7 @@ private struct Collapsible<Content: View>: View {
                     ], startPoint: .top, endPoint: .bottom)
                 )
             if needsCollapse {
-                Button(expanded ? "收起 ⌃" : "展开 ⌄") {
+                Button(expanded ? L("收起 ⌃") : L("展开 ⌄")) {
                     withAnimation(.easeInOut(duration: 0.2)) { expanded.toggle() }
                 }
                 .buttonStyle(TextLinkButtonStyle())
@@ -369,8 +369,8 @@ private struct ChapterCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            CardTitle(title: "章节纪要") {
-                Button(expandAll ? "收起全部" : "展开全部") {
+            CardTitle(title: L("章节纪要")) {
+                Button(expandAll ? L("收起全部") : L("展开全部")) {
                     expandAll.toggle()
                     expanded = []
                 }
@@ -426,7 +426,7 @@ private struct ChapterRow: View {
                         .multilineTextAlignment(.leading)
                 }
                 .buttonStyle(.plain)
-                .help("跳到本章节并播放")
+                .help(L("跳到本章节并播放"))
                 Text(chapter.summary)
                     .font(.system(size: 14))
                     .foregroundStyle(Color.textSecondary)
@@ -435,7 +435,7 @@ private struct ChapterRow: View {
                     .truncationMode(.tail)
                     .textSelection(.enabled)
                 if hovering || expanded {
-                    Button(expanded ? "收起" : "展开", action: toggle)
+                    Button(expanded ? L("收起") : L("展开"), action: toggle)
                         .buttonStyle(TextLinkButtonStyle(size: 12))
                 }
             }

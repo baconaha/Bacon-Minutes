@@ -7,9 +7,9 @@ struct LeftBottomPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 28) {
-                UnderlineTab(title: "发言人 (\(model.transcript?.speakers.count ?? 0))",
+                UnderlineTab(title: L("发言人 ({0})", model.transcript?.speakers.count ?? 0),
                              selected: model.leftTab == .speakers, fontSize: 14) { model.leftTab = .speakers }
-                UnderlineTab(title: "文件信息", selected: model.leftTab == .fileInfo, fontSize: 14) { model.leftTab = .fileInfo }
+                UnderlineTab(title: L("文件信息"), selected: model.leftTab == .fileInfo, fontSize: 14) { model.leftTab = .fileInfo }
                 Spacer()
             }
             .padding(.horizontal, 20)
@@ -39,7 +39,7 @@ private struct SpeakersList: View {
                                intervals: model.speakerIntervals[s.id] ?? [])
                 }
             } else if model.isLoaded {
-                Text("导入 SRT 后显示发言人与发言时段")
+                Text(L("导入 SRT 后显示发言人与发言时段"))
                     .font(.system(size: 13))
                     .foregroundStyle(Color.textTertiary)
                     .padding(.top, 8)
@@ -64,7 +64,7 @@ private struct SpeakerRow: View {
             HStack(spacing: 8) {
                 SpeakerAvatar(name: speaker.name, colorHex: speaker.colorHex, size: 22)
                 if editing {
-                    TextField("名字", text: $draft)
+                    TextField(L("名字"), text: $draft)
                         .textFieldStyle(.roundedBorder)
                         .font(.system(size: 13))
                         .frame(maxWidth: 200)
@@ -77,7 +77,7 @@ private struct SpeakerRow: View {
                         .font(.system(size: 13))
                         .foregroundStyle(Color.textPrimary)
                         .onTapGesture { beginEditing() }
-                        .help("点击重命名")
+                        .help(L("点击重命名"))
                 }
                 Text(verbatim: "\(percent)%")
                     .font(.system(size: 12).monospacedDigit())
@@ -85,7 +85,7 @@ private struct SpeakerRow: View {
                 Spacer()
             }
             .contextMenu {
-                Button("重命名") { beginEditing() }
+                Button(L("重命名")) { beginEditing() }
             }
             SpeakerTrack(intervals: intervals, duration: model.duration, hours: model.useHours) { t in
                 model.jump(toTime: t, play: model.player.isPlaying)
@@ -167,9 +167,9 @@ private struct FileInfoView: View {
     var body: some View {
         let m = model.minute
         Grid(alignment: .leading, horizontalSpacing: 20, verticalSpacing: 12) {
-            row("媒体文件", m.mediaFileName)
+            row(L("媒体文件"), m.mediaFileName)
             GridRow {
-                label("媒体路径")
+                label(L("媒体路径"))
                 Button {
                     model.revealMedia()
                 } label: {
@@ -179,14 +179,14 @@ private struct FileInfoView: View {
                         .truncationMode(.middle)
                 }
                 .buttonStyle(TextLinkButtonStyle())
-                .help("在 Finder 中显示")
+                .help(L("在 Finder 中显示"))
             }
-            row("时长", TimeFormat.durationCN(model.duration))
-            row("SRT 文件", m.srtFileName ?? "未导入")
-            row("字幕条数", "\(model.transcript?.cues.count ?? 0)")
-            row("发言人数", "\(model.transcript?.speakers.count ?? 0)")
-            row("创建时间", TimeFormat.createdDate(m.createdAt))
-            row("最近打开", m.lastOpenedAt.map(TimeFormat.createdDate) ?? "—")
+            row(L("时长"), TimeFormat.duration(model.duration))
+            row(L("SRT 文件"), m.srtFileName ?? L("未导入"))
+            row(L("字幕条数"), "\(model.transcript?.cues.count ?? 0)")
+            row(L("发言人数"), "\(model.transcript?.speakers.count ?? 0)")
+            row(L("创建时间"), TimeFormat.createdDate(m.createdAt))
+            row(L("最近打开"), m.lastOpenedAt.map(TimeFormat.createdDate) ?? "—")
         }
         .font(.system(size: 13))
         .padding(20)

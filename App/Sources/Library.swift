@@ -2,7 +2,7 @@ import AppKit
 import Foundation
 import Observation
 
-/// On-disk store: `~/Library/Application Support/LocalMinutes/minutes/<uuid>/`
+/// On-disk store: `~/Library/Application Support/BaconMinutes/minutes/<uuid>/`
 /// with `meta.json`, `transcript.json`, `summary.json`, `source.srt` and `thumbs/cover.jpg` (§9.4).
 @MainActor
 @Observable
@@ -18,13 +18,8 @@ final class Library {
     @ObservationIgnored private var searchIndex: [UUID: [UInt16]] = [:]
     @ObservationIgnored private var indexing = false
 
-    nonisolated static let trashRetentionDays = 30
-
     init() {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
-        root = base.appendingPathComponent("LocalMinutes", isDirectory: true)
-            .appendingPathComponent("minutes", isDirectory: true)
+        root = AppPaths.support.appendingPathComponent("minutes", isDirectory: true)
         try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
     }
 
@@ -54,7 +49,7 @@ final class Library {
             let data = try Self.encoder().encode(value)
             try data.write(to: url, options: .atomic)
         } catch {
-            NSLog("LocalMinutes: failed to write \(url.lastPathComponent): \(error)")
+            NSLog("BaconMinutes: failed to write \(url.lastPathComponent): \(error)")
         }
     }
 
@@ -161,22 +156,17 @@ final class Library {
         }
     }
 
-    /// Reads every minute and purges trash older than 30 days.
+    /// Reads every minute. Trash is kept until the user deletes it.
     nonisolated static func readAll(root: URL) -> [(Minute, Data?)] {
         let fm = FileManager.default
         guard let dirs = try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: nil,
                                                      options: [.skipsHiddenFiles]) else { return [] }
         let decoder = Self.decoder()
-        let cutoff = Date().addingTimeInterval(-Double(trashRetentionDays) * 86_400)
         var out: [(Minute, Data?)] = []
         for dir in dirs {
             let metaURL = dir.appendingPathComponent("meta.json")
             guard let data = try? Data(contentsOf: metaURL),
                   let minute = try? decoder.decode(Minute.self, from: data) else { continue }
-            if let deleted = minute.deletedAt, deleted < cutoff {
-                try? fm.removeItem(at: dir)
-                continue
-            }
             let thumb = try? Data(contentsOf: dir.appendingPathComponent("thumbs/cover.jpg"))
             out.append((minute, thumb))
         }

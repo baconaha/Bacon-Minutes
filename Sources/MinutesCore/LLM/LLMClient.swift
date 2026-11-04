@@ -34,16 +34,16 @@ enum LLMError: LocalizedError, Equatable {
         switch self {
         case .notConfigured(let m): return m
         case .invalidURL(let m): return m
-        case .http(let status, let message): return "HTTP \(status)：\(message)"
-        case .network(let m): return "网络错误：\(m)"
-        case .timeout(let seconds): return "请求超时（\(Int(seconds)) 秒）。可在 API 设置 → 高级中调大「超时」。"
-        case .emptyResponse: return "模型返回了空内容"
-        case .truncated: return "输出被截断：已达到「最大输出 tokens」上限。请在 API 设置 → 高级中调大该值后重试。"
+        case .http(let status, let message): return "HTTP \(status)\(L("："))\(message)"
+        case .network(let m): return L("网络错误：{0}", m)
+        case .timeout(let seconds): return L("请求超时（{0} 秒）。可在 API 设置 → 高级中调大「超时」。", Int(seconds))
+        case .emptyResponse: return L("模型返回了空内容")
+        case .truncated: return L("输出被截断：已达到「最大输出 tokens」上限。请在 API 设置 → 高级中调大该值后重试。")
         case .refusal(let category):
-            if let category, !category.isEmpty { return "模型拒绝了该请求（类别：\(category)）" }
-            return "模型拒绝了该请求"
-        case .invalidJSON(let snippet): return "模型输出不是合法 JSON：\(snippet)"
-        case .cancelled: return "已取消"
+            if let category, !category.isEmpty { return L("模型拒绝了该请求（类别：{0}）", category) }
+            return L("模型拒绝了该请求")
+        case .invalidJSON(let snippet): return L("模型输出不是合法 JSON：{0}", snippet)
+        case .cancelled: return L("已取消")
         case .unsupported(let m): return m
         }
     }
@@ -104,11 +104,11 @@ final class LLMClient {
 
     func listModels(config: LLMConfig, apiKey: String) async throws -> [String] {
         let base = Self.normalizedBase(config.baseURL)
-        guard !base.isEmpty else { throw LLMError.notConfigured("请先填写 Base URL") }
+        guard !base.isEmpty else { throw LLMError.notConfigured(L("请先填写 Base URL")) }
         var ids: [String] = []
         switch config.protocolKind {
         case .azure:
-            throw LLMError.unsupported("Azure OpenAI 不支持获取模型列表，请在「模型」中填写部署名称")
+            throw LLMError.unsupported(L("Azure OpenAI 不支持获取模型列表，请在「模型」中填写部署名称"))
         case .openAI:
             let req = try modelsRequest(urlString: base + "/models", config: config, apiKey: apiKey)
             let data = try await fetch(req, timeout: min(config.timeout, 30))
@@ -143,9 +143,9 @@ final class LLMClient {
 
     static func endpoint(config: LLMConfig) throws -> URL {
         let base = normalizedBase(config.baseURL)
-        guard !base.isEmpty else { throw LLMError.notConfigured("请先填写 Base URL") }
+        guard !base.isEmpty else { throw LLMError.notConfigured(L("请先填写 Base URL")) }
         if base.contains("{") || base.contains("}") {
-            throw LLMError.invalidURL("请把 Base URL 中的 {resource} 等占位符替换为实际值")
+            throw LLMError.invalidURL(L("请把 Base URL 中的 {resource} 等占位符替换为实际值"))
         }
         let s: String
         switch config.protocolKind {
@@ -161,14 +161,14 @@ final class LLMClient {
             }
         case .azure:
             let deployment = config.model.trimmed
-            guard !deployment.isEmpty else { throw LLMError.notConfigured("请在「模型」中填写 Azure 部署名称") }
+            guard !deployment.isEmpty else { throw LLMError.notConfigured(L("请在「模型」中填写 Azure 部署名称")) }
             let dep = deployment.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? deployment
             let version = config.azureAPIVersion.trimmed.isEmpty ? "2024-10-21" : config.azureAPIVersion.trimmed
             let ver = version.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? version
             s = base + "/openai/deployments/\(dep)/chat/completions?api-version=\(ver)"
         }
         guard let url = URL(string: s), let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
-            throw LLMError.invalidURL("Base URL 无效：\(base)")
+            throw LLMError.invalidURL(L("Base URL 无效：{0}", base))
         }
         return url
     }
@@ -204,7 +204,7 @@ final class LLMClient {
         let url = try Self.endpoint(config: config)
         let model = config.model.trimmed
         if config.protocolKind != .azure && model.isEmpty {
-            throw LLMError.notConfigured("请先填写模型名称")
+            throw LLMError.notConfigured(L("请先填写模型名称"))
         }
         var body: [String: Any] = [:]
         let fallbacks = Self.usesFallbacks(config: config, flags: flags)
@@ -240,7 +240,7 @@ final class LLMClient {
     }
 
     private func modelsRequest(urlString: String, config: LLMConfig, apiKey: String) throws -> URLRequest {
-        guard let url = URL(string: urlString) else { throw LLMError.invalidURL("Base URL 无效：\(urlString)") }
+        guard let url = URL(string: urlString) else { throw LLMError.invalidURL(L("Base URL 无效：{0}", urlString)) }
         var req = URLRequest(url: url)
         req.httpMethod = "GET"
         applyHeaders(&req, config: config, apiKey: apiKey, includeBeta: false)
@@ -291,10 +291,10 @@ final class LLMClient {
     static func parseResponse(_ data: Data, protocolKind: LLMProtocol) throws -> LLMResponse {
         guard let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
             let raw = String(decoding: data.prefix(300), as: UTF8.self)
-            throw LLMError.network("无法解析服务端响应：\(raw)")
+            throw LLMError.network(L("无法解析服务端响应：{0}", raw))
         }
         if let err = obj["error"], !(err is NSNull), obj["choices"] == nil, obj["content"] == nil {
-            throw LLMError.http(status: 200, message: errorText(err) ?? "未知错误")
+            throw LLMError.http(status: 200, message: errorText(err) ?? L("未知错误"))
         }
         switch protocolKind {
         case .openAI, .azure:
@@ -352,7 +352,7 @@ final class LLMClient {
             }
         }
         let raw = String(decoding: data.prefix(500), as: UTF8.self).trimmed
-        return raw.isEmpty ? "（服务端未返回内容）" : raw
+        return raw.isEmpty ? L("（服务端未返回内容）") : raw
     }
 
     static func parseModelIDs(_ data: Data) -> (ids: [String], hasMore: Bool, lastID: String?) {
@@ -415,7 +415,7 @@ final class LLMClient {
                         return
                     }
                     guard let http = response as? HTTPURLResponse else {
-                        cont.resume(throwing: LLMError.network("无效的响应"))
+                        cont.resume(throwing: LLMError.network(L("无效的响应")))
                         return
                     }
                     cont.resume(returning: (data ?? Data(), http))

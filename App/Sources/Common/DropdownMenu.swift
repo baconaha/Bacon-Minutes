@@ -476,7 +476,7 @@ struct DropdownButton<Label: View>: View {
 struct MoreMenuButton: View {
     var alignment: DropdownAlignment = .trailing
     var size: CGFloat = 28
-    var help: String = "更多"
+    var help: String = L("更多")
     var openOnHover = true
     let items: () -> [DropdownItem]
 

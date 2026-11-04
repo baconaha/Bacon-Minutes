@@ -132,6 +132,13 @@ struct ConfirmDialogView: View {
                             .foregroundStyle(Color.textSecondary)
                             .lineSpacing(3)
                             .fixedSize(horizontal: false, vertical: true)
+                        if let emphasis = request.emphasis {
+                            Text(emphasis)
+                                .font(.system(size: 14, weight: .bold))
+                                .foregroundStyle(Color.textPrimary)
+                                .lineSpacing(3)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                     }
                 }
                 HStack(spacing: 12) {
@@ -170,23 +177,23 @@ struct FolderInfoDialog: View {
                         .font(.system(size: 28))
                         .foregroundStyle(Color.brand)
                     VStack(alignment: .leading, spacing: 3) {
-                        Text(folder?.name ?? "文件夹")
+                        Text(folder?.name ?? L("文件夹"))
                             .font(.system(size: 17, weight: .semibold))
                             .foregroundStyle(Color.textPrimary)
                             .lineLimit(2)
-                        Text("属性").font(.system(size: 12)).foregroundStyle(Color.textTertiary)
+                        Text(L("属性")).font(.system(size: 12)).foregroundStyle(Color.textTertiary)
                     }
                 }
                 Rectangle().fill(Color.divider).frame(height: 1)
                 Grid(alignment: .leading, horizontalSpacing: 24, verticalSpacing: 12) {
-                    infoRow("妙记数量", "\(stats.count) 个")
-                    infoRow("总时长", stats.count > 0 ? TimeFormat.durationCN(stats.duration) : "—")
-                    infoRow("总大小", AppModel.byteText(stats.bytes))
-                    infoRow("创建时间", folder.map { TimeFormat.createdDate($0.createdAt) } ?? "—")
+                    infoRow(L("妙记数量"), L("{0} 个", stats.count))
+                    infoRow(L("总时长"), stats.count > 0 ? TimeFormat.duration(stats.duration) : "—")
+                    infoRow(L("总大小"), AppModel.byteText(stats.bytes))
+                    infoRow(L("创建时间"), folder.map { TimeFormat.createdDate($0.createdAt) } ?? "—")
                 }
                 HStack {
                     Spacer()
-                    Button("好") { closing = true }
+                    Button(L("好")) { closing = true }
                         .buttonStyle(PrimaryButtonStyle())
                         .keyboardShortcut(.defaultAction)
                 }
@@ -217,17 +224,17 @@ struct MoveToFolderDialog: View {
     var body: some View {
         FlipDialog(width: 400, onClosed: finish, closeRequest: $closing) {
             VStack(alignment: .leading, spacing: 16) {
-                Text(ids.count == 1 ? "移动到文件夹" : "将 \(ids.count) 个妙记移动到文件夹")
+                Text(ids.count == 1 ? L("移动到文件夹") : L("将 {0} 个妙记移动到文件夹", ids.count))
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(Color.textPrimary)
                 if app.library.folders.isEmpty {
-                    Text("还没有文件夹。可以在左侧边栏「文件夹」旁点 + 新建。")
+                    Text(L("还没有文件夹。可以在左侧边栏「文件夹」旁点 + 新建。"))
                         .font(.system(size: 13))
                         .foregroundStyle(Color.textTertiary)
                 } else {
                     ScrollView {
                         VStack(spacing: 2) {
-                            option(nil, title: "不放入文件夹", icon: "tray")
+                            option(nil, title: L("不放入文件夹"), icon: "tray")
                             ForEach(app.library.folders) { f in option(f.id, title: f.name, icon: "folder") }
                         }
                     }
@@ -235,10 +242,10 @@ struct MoveToFolderDialog: View {
                 }
                 HStack(spacing: 12) {
                     Spacer()
-                    Button("取消") { closing = true }
+                    Button(L("取消")) { closing = true }
                         .buttonStyle(DialogCancelButtonStyle())
                         .keyboardShortcut(.cancelAction)
-                    Button("移动") {
+                    Button(L("移动")) {
                         applied = true
                         closing = true
                     }

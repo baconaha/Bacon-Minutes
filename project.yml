@@ -1,16 +1,16 @@
-name: LocalMinutes
+name: BaconMinutes
 options:
-  bundleIdPrefix: com.localminutes
+  bundleIdPrefix: com.baconminutes
   deploymentTarget:
     macOS: "14.0"
   createIntermediateGroups: true
-  developmentLanguage: zh-Hans
+  developmentLanguage: en
 settings:
   base:
     SWIFT_VERSION: "5.0"
     MACOSX_DEPLOYMENT_TARGET: "14.0"
 targets:
-  LocalMinutes:
+  BaconMinutes:
     type: application
     platform: macOS
     sources:
@@ -19,11 +19,13 @@ targets:
       - path: Sources/MinutesCore
     settings:
       base:
-        PRODUCT_NAME: LocalMinutes
+        PRODUCT_NAME: "Bacon Minutes"
+        # Kept from before the rename: the sandbox container (library, settings) and
+        # Keychain items belong to this identifier, so changing it would lose them.
         PRODUCT_BUNDLE_IDENTIFIER: com.localminutes.app
         INFOPLIST_FILE: App/Support/Info.plist
         GENERATE_INFOPLIST_FILE: NO
-        CODE_SIGN_ENTITLEMENTS: App/Support/LocalMinutes.entitlements
+        CODE_SIGN_ENTITLEMENTS: App/Support/BaconMinutes.entitlements
         CODE_SIGN_STYLE: Automatic
         CODE_SIGN_IDENTITY: "-"
         ENABLE_HARDENED_RUNTIME: YES

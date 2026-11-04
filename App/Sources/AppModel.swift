@@ -14,9 +14,9 @@ enum ListSection: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .all: return "全部"
-        case .recent: return "最近打开"
-        case .trash: return "回收站"
+        case .all: return L("全部")
+        case .recent: return L("最近打开")
+        case .trash: return L("回收站")
         }
     }
 
@@ -51,7 +51,9 @@ struct ConfirmRequest: Identifiable {
     var title: String
     var message: String
     var confirmTitle: String
-    var cancelTitle = "取消"
+    var cancelTitle = L("取消")
+    /// Shown in bold under the message (e.g. that the original media file is kept).
+    var emphasis: String? = nil
     var onConfirm: () -> Void
 }
 
@@ -61,8 +63,8 @@ enum ListSort: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .created: return "最近创建"
-        case .opened: return "最近打开"
+        case .created: return L("最近创建")
+        case .opened: return L("最近打开")
         }
     }
 }
@@ -182,19 +184,19 @@ final class AppModel {
 
     var sectionTitle: String {
         switch section {
-        case .all: return "全部"
-        case .recent: return "最近打开"
-        case .trash: return "回收站"
-        case .folder(let id): return library.userFolder(id)?.name ?? "文件夹"
+        case .all: return L("全部")
+        case .recent: return L("最近打开")
+        case .trash: return L("回收站")
+        case .folder(let id): return library.userFolder(id)?.name ?? L("文件夹")
         }
     }
 
     func createFolder() {
-        var name = "新建文件夹"
+        var name = L("新建文件夹")
         var n = 2
         let names = Set(library.folders.map(\.name))
         while names.contains(name) {
-            name = "新建文件夹 \(n)"
+            name = L("新建文件夹 {0}", n)
             n += 1
         }
         let f = library.createFolder(named: name)
@@ -213,14 +215,14 @@ final class AppModel {
         guard let f = library.userFolder(id) else { return }
         let count = library.stats(inFolder: id).count
         confirmRequest = ConfirmRequest(
-            title: "删除文件夹「\(f.name)」？",
-            message: count > 0 ? "文件夹里的 \(count) 个妙记不会被删除，仍会保留在「全部」中。" : "这个文件夹是空的。",
-            confirmTitle: "删除文件夹"
+            title: L("删除文件夹「{0}」？", f.name),
+            message: count > 0 ? L("文件夹里的 {0} 个妙记不会被删除，仍会保留在「全部」中。", count) : L("这个文件夹是空的。"),
+            confirmTitle: L("删除文件夹")
         ) { [weak self] in
             guard let self else { return }
             if self.section == .folder(id) { self.section = .all }
             self.library.deleteFolder(id)
-            self.showToast("已删除文件夹")
+            self.showToast(L("已删除文件夹"))
         }
     }
 
@@ -229,9 +231,9 @@ final class AppModel {
         guard !valid.isEmpty else { return }
         library.move(valid, toFolder: folderID)
         if let folderID, let f = library.userFolder(folderID) {
-            showToast(valid.count == 1 ? "已移动到「\(f.name)」" : "已将 \(valid.count) 项移动到「\(f.name)」")
+            showToast(valid.count == 1 ? L("已移动到「{0}」", f.name) : L("已将 {0} 项移动到「{1}」", valid.count, f.name))
         } else {
-            showToast("已移出文件夹")
+            showToast(L("已移出文件夹"))
         }
         selection.subtract(valid)
     }
@@ -239,13 +241,6 @@ final class AppModel {
     func importIntoFolder(_ id: UUID) {
         section = .folder(id)
         presentImportDialog()
-    }
-
-    static func shortDuration(_ seconds: Double) -> String {
-        let total = Int(seconds.rounded())
-        let h = total / 3600, m = (total % 3600) / 60
-        if h > 0 { return m > 0 ? "\(h) 小时 \(m) 分" : "\(h) 小时" }
-        return TimeFormat.durationCN(seconds)
     }
 
     static func byteText(_ bytes: Int64) -> String {
@@ -329,12 +324,12 @@ final class AppModel {
         guard !ids.isEmpty else { return }
         let title: String
         if ids.count == 1, let id = ids.first, let m = library.minute(id) {
-            title = "将「\(m.title)」移到回收站？"
+            title = L("将「{0}」移到回收站？", m.title)
         } else {
-            title = "将 \(ids.count) 个妙记移到回收站？"
+            title = L("将 {0} 个妙记移到回收站？", ids.count)
         }
-        confirmRequest = ConfirmRequest(title: title, message: "移到回收站后 30 天内可以恢复，之后会被彻底删除。原始媒体文件不会被删除。",
-                                        confirmTitle: "移到回收站") { [weak self] in
+        confirmRequest = ConfirmRequest(title: title, message: L("移到回收站后可以随时恢复。"),
+                                        confirmTitle: L("移到回收站"), emphasis: L("原始媒体文件不会被删除。")) { [weak self] in
             self?.moveToTrash(ids)
         }
     }
@@ -344,21 +339,21 @@ final class AppModel {
         if let d = detail, ids.contains(d.minute.id) { backToList() }
         library.moveToTrash(ids)
         selection.subtract(ids)
-        showToast(ids.count == 1 ? "已移到回收站" : "已将 \(ids.count) 项移到回收站")
+        showToast(ids.count == 1 ? L("已移到回收站") : L("已将 {0} 项移到回收站", ids.count))
     }
 
     func restore(_ ids: Set<UUID>) {
         guard !ids.isEmpty else { return }
         library.restore(ids)
         selection.subtract(ids)
-        showToast("已恢复")
+        showToast(L("已恢复"))
     }
 
     func deleteForever(_ ids: Set<UUID>) {
         guard !ids.isEmpty else { return }
-        confirmRequest = ConfirmRequest(title: ids.count == 1 ? "彻底删除这个妙记？" : "彻底删除 \(ids.count) 个妙记？",
-                                        message: "删除后无法恢复。原始媒体文件不会被删除。",
-                                        confirmTitle: "彻底删除") { [weak self] in
+        confirmRequest = ConfirmRequest(title: ids.count == 1 ? L("彻底删除这个妙记？") : L("彻底删除 {0} 个妙记？", ids.count),
+                                        message: L("删除后妙记的文字记录和纪要无法恢复。"),
+                                        confirmTitle: L("彻底删除"), emphasis: L("原始媒体文件不会被删除。")) { [weak self] in
             guard let self else { return }
             self.library.deletePermanently(ids)
             self.selection.subtract(ids)
@@ -367,7 +362,7 @@ final class AppModel {
 
     func revealMedia(_ id: UUID) {
         guard let m = library.minute(id), let r = Bookmarks.resolve(m.mediaBookmark) else {
-            Alerts.error("找不到媒体文件", "文件可能已被移动或删除。打开妙记后可以「重新定位」。")
+            Alerts.error(L("找不到媒体文件"), L("文件可能已被移动或删除。打开妙记后可以「重新定位」。"))
             return
         }
         let access = ScopedAccess(url: r.url)
@@ -381,7 +376,7 @@ final class AppModel {
             let (tr, _) = try attachSRT(url, toMinute: id)
             showToast(Self.importSummaryText(transcript: tr, duration: library.minute(id)?.duration ?? 0))
         } catch {
-            Alerts.error("无法导入字幕", error.localizedDescription)
+            Alerts.error(L("无法导入字幕"), error.localizedDescription)
         }
     }
 
@@ -411,9 +406,9 @@ final class AppModel {
                     presentImportDialog(prefillSubtitle: srt)
                 }
             } else if !subtitles.isEmpty {
-                Alerts.info("请同时选择音视频文件", "字幕需要与对应的音视频一起导入。")
+                Alerts.info(L("请同时选择音视频文件"), L("字幕需要与对应的音视频一起导入。"))
             } else if !files.isEmpty || !urls.isEmpty {
-                Alerts.info("没有可导入的文件", "支持的媒体：mp4 / mov / m4v / mp3 / m4a / wav / aac；字幕：srt。")
+                Alerts.info(L("没有可导入的文件"), L("支持的媒体：mp4 / mov / m4v / mp3 / m4a / wav / aac；字幕：srt。"))
             }
             return
         }
@@ -426,9 +421,9 @@ final class AppModel {
             let result = FilePairing.pair(media: media, subtitles: subtitles, suffixes: settings.general.filenameSuffixes)
             pairs = result.pairs
             for s in result.suggestions {
-                let use = Alerts.confirm("使用「\(s.subtitle.lastPathComponent)」作为字幕？",
-                                         "没有找到与「\(s.media.lastPathComponent)」同名的 SRT，同一文件夹中只有这一个字幕文件。",
-                                         ok: "使用", cancel: "不使用")
+                let use = Alerts.confirm(L("使用「{0}」作为字幕？", s.subtitle.lastPathComponent),
+                                         L("没有找到与「{0}」同名的 SRT，同一文件夹中只有这一个字幕文件。", s.media.lastPathComponent),
+                                         ok: L("使用"), cancel: L("不使用"))
                 if use {
                     pairs.append(FilePairing.Pair(media: s.media, subtitle: s.subtitle))
                 } else {
@@ -444,8 +439,8 @@ final class AppModel {
             await runImport(finalPairs)
             if !leftovers.isEmpty {
                 let names = leftovers.map(\.lastPathComponent).joined(separator: "\n")
-                Alerts.info("有 \(leftovers.count) 个字幕未能配对",
-                            "\(names)\n\n可以打开对应的妙记，在「··· → 重新导入 SRT」或文字记录空状态中手动指定。")
+                Alerts.info(L("有 {0} 个字幕未能配对", leftovers.count),
+                            L("{0}\n\n可以打开对应的妙记，在「··· → 重新导入 SRT」或文字记录空状态中手动指定。", names))
             }
         }
     }
@@ -468,7 +463,7 @@ final class AppModel {
             do {
                 created.append(try await createMinute(media: pair.media, subtitle: pair.subtitle, folderID: targetFolder))
             } catch {
-                failures.append("\(pair.media.lastPathComponent)：\(error.localizedDescription)")
+                failures.append(L("{0}：{1}", pair.media.lastPathComponent, error.localizedDescription))
             }
         }
         if section == .trash { section = .all }
@@ -477,13 +472,13 @@ final class AppModel {
             if let tr {
                 showToast(Self.importSummaryText(transcript: tr, duration: m.duration))
             } else {
-                showToast("已导入「\(m.title)」，时长 \(TimeFormat.compactDuration(m.duration))")
+                showToast(L("已导入「{0}」，时长 {1}", m.title, TimeFormat.compactDuration(m.duration)))
             }
         } else if created.count > 1 {
-            showToast("已导入 \(created.count) 个妙记")
+            showToast(L("已导入 {0} 个妙记", created.count))
         }
         if !failures.isEmpty {
-            Alerts.error("部分文件导入失败", failures.joined(separator: "\n"))
+            Alerts.error(L("部分文件导入失败"), failures.joined(separator: "\n"))
         }
     }
 
@@ -496,13 +491,13 @@ final class AppModel {
         let access = ScopedAccess(url: media)
         defer { access.stop() }
         guard let bookmark = Bookmarks.make(for: media) else {
-            throw ImportError(message: "无法访问该文件")
+            throw ImportError(message: L("无法访问该文件"))
         }
         let info: MediaInspector.Info
         do {
             info = try await MediaInspector.inspect(url: media)
         } catch {
-            throw ImportError(message: "无法读取媒体：\(error.localizedDescription)")
+            throw ImportError(message: L("无法读取媒体：{0}", error.localizedDescription))
         }
         let baseName = media.deletingPathExtension().lastPathComponent
         let title = FilePairing.normalizedTitle(baseName, suffixes: settings.general.filenameSuffixes)
@@ -520,7 +515,7 @@ final class AppModel {
                 transcript = try attachSRT(subtitle, toMinute: minute.id).0
                 if let m = library.minute(minute.id) { minute = m }
             } catch {
-                Alerts.error("字幕「\(subtitle.lastPathComponent)」解析失败", error.localizedDescription)
+                Alerts.error(L("字幕「{0}」解析失败", subtitle.lastPathComponent), error.localizedDescription)
             }
         }
         if info.hasVideo, let jpeg = await MediaInspector.coverJPEG(url: media, duration: info.duration) {
@@ -560,7 +555,7 @@ final class AppModel {
 
     static func importSummaryText(transcript: Transcript, duration: Double) -> String {
         let d = duration > 0 ? duration : (transcript.cues.map(\.end).max() ?? 0)
-        return "已导入 \(transcript.cues.count) 条字幕，\(transcript.speakers.count) 位发言人，时长 \(TimeFormat.compactDuration(d))"
+        return L("已导入 {0} 条字幕，{1} 位发言人，时长 {2}", transcript.cues.count, transcript.speakers.count, TimeFormat.compactDuration(d))
     }
 
     // MARK: Keyboard (§11)

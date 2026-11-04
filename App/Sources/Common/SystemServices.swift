@@ -3,12 +3,45 @@ import Foundation
 import Security
 import UniformTypeIdentifiers
 
+// MARK: - Paths
+
+enum AppPaths {
+    /// `~/Library/Application Support/BaconMinutes` (inside the sandbox container).
+    /// Builds from before the rename used "LocalMinutes"; that folder is moved over once.
+    static let support: URL = {
+        let fm = FileManager.default
+        let base = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
+        let dir = base.appendingPathComponent("BaconMinutes", isDirectory: true)
+        let legacy = base.appendingPathComponent("LocalMinutes", isDirectory: true)
+        if !fm.fileExists(atPath: dir.path), fm.fileExists(atPath: legacy.path) {
+            try? fm.moveItem(at: legacy, to: dir)
+        }
+        try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }()
+}
+
 // MARK: - Keychain
 
 enum Keychain {
-    static let service = "LocalMinutes.LLM"
+    static let service = "BaconMinutes.LLM"
+    /// Service name used before the rename; keys found there are moved on first read.
+    private static let legacyService = "LocalMinutes.LLM"
 
     static func read(account: String) -> String? {
+        if let value = read(account: account, service: service) { return value }
+        guard let old = read(account: account, service: legacyService) else { return nil }
+        write(old, account: account)
+        _ = SecItemDelete([
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: legacyService,
+            kSecAttrAccount as String: account,
+        ] as CFDictionary)
+        return old
+    }
+
+    private static func read(account: String, service: String) -> String? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -112,17 +145,17 @@ enum FilePanels {
 
     static func chooseFolder() -> URL? {
         let panel = NSOpenPanel()
-        panel.message = "选择包含音视频与 SRT 字幕的文件夹"
+        panel.message = L("选择包含音视频与 SRT 字幕的文件夹")
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
-        panel.prompt = "导入"
+        panel.prompt = L("导入")
         return panel.runModal() == .OK ? panel.url : nil
     }
 
     static func chooseMedia() -> URL? {
         let panel = NSOpenPanel()
-        panel.message = "选择音视频文件（mp4 / mov / m4v / mp3 / m4a / wav / aac）"
+        panel.message = L("选择音视频文件（mp4 / mov / m4v / mp3 / m4a / wav / aac）")
         panel.allowsMultipleSelection = false
         panel.allowedContentTypes = mediaTypes
         return panel.runModal() == .OK ? panel.url : nil
@@ -130,7 +163,7 @@ enum FilePanels {
 
     static func chooseSRT() -> URL? {
         let panel = NSOpenPanel()
-        panel.message = "选择 SRT 字幕文件"
+        panel.message = L("选择 SRT 字幕文件")
         panel.allowsMultipleSelection = false
         panel.allowedContentTypes = subtitleTypes
         return panel.runModal() == .OK ? panel.url : nil
@@ -148,7 +181,7 @@ enum FilePanels {
             try Data(text.utf8).write(to: url, options: .atomic)
             return true
         } catch {
-            Alerts.error("导出失败", error.localizedDescription)
+            Alerts.error(L("导出失败"), error.localizedDescription)
             return false
         }
     }
@@ -156,7 +189,7 @@ enum FilePanels {
     static func sanitize(_ name: String) -> String {
         let bad = CharacterSet(charactersIn: "/\\:?%*|\"<>")
         let cleaned = name.components(separatedBy: bad).joined(separator: "_").trimmingCharacters(in: .whitespaces)
-        return cleaned.isEmpty ? "妙记" : String(cleaned.prefix(120))
+        return cleaned.isEmpty ? L("妙记") : String(cleaned.prefix(120))
     }
 
     /// Recursively lists files under folders; plain files are passed through.
@@ -194,7 +227,7 @@ enum Alerts {
         a.alertStyle = .warning
         a.messageText = title
         a.informativeText = message
-        a.addButton(withTitle: "好")
+        a.addButton(withTitle: L("好"))
         a.runModal()
     }
 
@@ -203,11 +236,11 @@ enum Alerts {
         a.alertStyle = .informational
         a.messageText = title
         a.informativeText = message
-        a.addButton(withTitle: "好")
+        a.addButton(withTitle: L("好"))
         a.runModal()
     }
 
-    static func confirm(_ title: String, _ message: String, ok: String, cancel: String = "取消", destructive: Bool = false) -> Bool {
+    static func confirm(_ title: String, _ message: String, ok: String, cancel: String = L("取消"), destructive: Bool = false) -> Bool {
         let a = NSAlert()
         a.alertStyle = destructive ? .critical : .informational
         a.messageText = title

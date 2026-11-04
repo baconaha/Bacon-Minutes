@@ -3,10 +3,10 @@ import XCTest
 
 final class TimeFormatTests: XCTestCase {
     func testDurations() {
-        XCTAssertEqual(TimeFormat.durationCN(207), "3 分 27 秒")
-        XCTAssertEqual(TimeFormat.durationCN(5683), "1 小时 34 分 43 秒")
-        XCTAssertEqual(TimeFormat.durationCN(3605), "1 小时 5 秒")
-        XCTAssertEqual(TimeFormat.durationCN(0), "0 秒")
+        XCTAssertEqual(TimeFormat.duration(207), "3 分 27 秒")
+        XCTAssertEqual(TimeFormat.duration(5683), "1 小时 34 分 43 秒")
+        XCTAssertEqual(TimeFormat.duration(3605), "1 小时 5 秒")
+        XCTAssertEqual(TimeFormat.duration(0), "0 秒")
         XCTAssertEqual(TimeFormat.compactDuration(5683), "1:34:43")
     }
 

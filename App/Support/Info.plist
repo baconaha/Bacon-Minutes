@@ -3,13 +3,23 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleDevelopmentRegion</key>
-	<string>zh-Hans</string>
+	<string>en</string>
 	<key>CFBundleLocalizations</key>
 	<array>
 		<string>zh-Hans</string>
+		<string>en</string>
+		<string>ja</string>
+		<string>ko</string>
+		<string>es</string>
+		<string>vi</string>
+		<string>fr</string>
+		<string>pt</string>
+		<string>ru</string>
 	</array>
 	<key>CFBundleDisplayName</key>
-	<string>本地妙记</string>
+	<string>Bacon Minutes</string>
+	<key>LSHasLocalizedDisplayName</key>
+	<true/>
 	<key>CFBundleName</key>
 	<string>$(PRODUCT_NAME)</string>
 	<key>CFBundleExecutable</key>

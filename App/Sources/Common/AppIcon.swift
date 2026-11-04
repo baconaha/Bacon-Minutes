@@ -14,11 +14,7 @@ final class AppIconStore {
     private let fileURL: URL
 
     private init() {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
-        let dir = base.appendingPathComponent("LocalMinutes", isDirectory: true)
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        fileURL = dir.appendingPathComponent("custom-icon.png")
+        fileURL = AppPaths.support.appendingPathComponent("custom-icon.png")
         if let img = NSImage(contentsOf: fileURL) { customArtwork = img }
     }
 
@@ -37,7 +33,7 @@ final class AppIconStore {
         defer { access.stop() }
         guard let source = NSImage(contentsOf: url), let normalized = Self.normalizedArtwork(source),
               let png = Self.pngData(normalized) else {
-            throw IconError(message: "无法读取这张图片")
+            throw IconError(message: L("无法读取这张图片"))
         }
         try png.write(to: fileURL, options: .atomic)
         customArtwork = normalized

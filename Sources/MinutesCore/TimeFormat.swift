@@ -20,15 +20,48 @@ enum TimeFormat {
         return "\(pad2(total / 60)):\(pad2(s))"
     }
 
-    /// `1 小时 34 分 43 秒`; zero units are left out (`1 小时 5 秒`).
-    static func durationCN(_ seconds: Double) -> String {
+    /// Hour / minute / second words and spacing for long durations.
+    private struct Units {
+        let h: String, m: String, s: String
+        /// Between the number and its unit.
+        let gap: String
+        /// Between the parts.
+        let joiner: String
+    }
+
+    private static func units(_ lang: AppLanguage) -> Units {
+        switch lang {
+        case .zhHans: return Units(h: "小时", m: "分", s: "秒", gap: " ", joiner: " ")
+        case .en: return Units(h: "h", m: "m", s: "s", gap: "", joiner: " ")
+        case .ja: return Units(h: "時間", m: "分", s: "秒", gap: "", joiner: "")
+        case .ko: return Units(h: "시간", m: "분", s: "초", gap: "", joiner: " ")
+        case .es, .pt, .fr: return Units(h: "h", m: "min", s: "s", gap: " ", joiner: " ")
+        case .vi: return Units(h: "giờ", m: "phút", s: "giây", gap: " ", joiner: " ")
+        case .ru: return Units(h: "ч", m: "мин", s: "с", gap: " ", joiner: " ")
+        }
+    }
+
+    /// `1 小时 34 分 43 秒` / `1h 34m 43s`; zero units are left out (`1 小时 5 秒`).
+    static func duration(_ seconds: Double, language: AppLanguage? = nil) -> String {
+        let u = units(language ?? Localizer.shared.language)
         let total = seconds.isFinite && seconds > 0 ? Int(seconds.rounded()) : 0
         let h = total / 3600, m = (total % 3600) / 60, s = total % 60
         var parts: [String] = []
-        if h > 0 { parts.append("\(h) 小时") }
-        if m > 0 { parts.append("\(m) 分") }
-        if s > 0 || parts.isEmpty { parts.append("\(s) 秒") }
-        return parts.joined(separator: " ")
+        if h > 0 { parts.append("\(h)\(u.gap)\(u.h)") }
+        if m > 0 { parts.append("\(m)\(u.gap)\(u.m)") }
+        if s > 0 || parts.isEmpty { parts.append("\(s)\(u.gap)\(u.s)") }
+        return parts.joined(separator: u.joiner)
+    }
+
+    /// Hours and minutes only once a total reaches an hour (`12 小时 5 分`), for library totals.
+    static func roughDuration(_ seconds: Double) -> String {
+        let total = seconds.isFinite && seconds > 0 ? Int(seconds.rounded()) : 0
+        guard total >= 3600 else { return duration(seconds) }
+        let u = units(Localizer.shared.language)
+        let h = total / 3600, m = (total % 3600) / 60
+        var parts = ["\(h)\(u.gap)\(u.h)"]
+        if m > 0 { parts.append("\(m)\(u.gap)\(u.m)") }
+        return parts.joined(separator: u.joiner)
     }
 
     /// `1:34:43` / `3:27`, used in the import toast.
@@ -50,25 +83,33 @@ enum TimeFormat {
         return "\(pad2(h)):\(pad2(m)):\(pad2(s)),\(milliText)"
     }
 
-    private static let createdFormatter: DateFormatter = {
+    private static let formatterLock = NSLock()
+    private static var formatters: [String: DateFormatter] = [:]
+
+    /// Chinese keeps the spec's fixed patterns; other languages use their locale's own order.
+    private static func formatter(withTime: Bool) -> DateFormatter {
+        let lang = Localizer.shared.language
+        let key = "\(lang.rawValue)|\(withTime)"
+        formatterLock.lock()
+        defer { formatterLock.unlock() }
+        if let f = formatters[key] { return f }
         let f = DateFormatter()
-        f.locale = Locale(identifier: "zh_Hans_CN")
-        f.dateFormat = "yyyy年M月d日 ah:mm"
+        if lang == .zhHans {
+            f.locale = Locale(identifier: "zh_Hans_CN")
+            f.dateFormat = withTime ? "yyyy年M月d日 ah:mm" : "yyyy年M月d日"
+        } else {
+            f.locale = lang.locale
+            f.setLocalizedDateFormatFromTemplate(withTime ? "yMMMdjmm" : "yMMMd")
+        }
+        formatters[key] = f
         return f
-    }()
+    }
 
-    private static let dateOnlyFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "zh_Hans_CN")
-        f.dateFormat = "yyyy年M月d日"
-        return f
-    }()
+    /// `2026年10月13日 下午4:00` / `Oct 13, 2026 at 4:00 PM`
+    static func createdDate(_ date: Date) -> String { formatter(withTime: true).string(from: date) }
 
-    /// `2026年10月13日 下午4:00`
-    static func createdDate(_ date: Date) -> String { createdFormatter.string(from: date) }
-
-    /// `2026年10月13日`
-    static func dateOnly(_ date: Date) -> String { dateOnlyFormatter.string(from: date) }
+    /// `2026年10月13日` / `Oct 13, 2026`
+    static func dateOnly(_ date: Date) -> String { formatter(withTime: false).string(from: date) }
 
     /// Parses `mm:ss`, `hh:mm:ss`, `[mm:ss]`, optional fractional seconds, or plain seconds.
     static func parseTimestamp(_ raw: String) -> Double? {

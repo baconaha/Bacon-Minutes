@@ -44,7 +44,7 @@ struct TranscriptPanel: View {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 13))
                     .foregroundStyle(Color.textTertiary)
-                TextField("搜索", text: $model.searchQuery)
+                TextField(L("搜索"), text: $model.searchQuery)
                     .textFieldStyle(.plain)
                     .font(.system(size: 13))
                     .focused($searchFocused)
@@ -72,14 +72,14 @@ struct TranscriptPanel: View {
             }
 
             if !model.searchQuery.isEmpty {
-                Button("取消") {
+                Button(L("取消")) {
                     model.clearSearch()
                     searchFocused = false
                 }
                 .buttonStyle(TextLinkButtonStyle())
             }
 
-            MoreMenuButton(help: "导出文字记录") { exportMenuItems(for: model) }
+            MoreMenuButton(help: L("导出文字记录")) { exportMenuItems(for: model) }
         }
     }
 }
@@ -90,7 +90,7 @@ private struct KeywordSuggestions: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("推荐关键词")
+            Text(L("推荐关键词"))
                 .font(.system(size: 12))
                 .foregroundStyle(Color.textTertiary)
             FlowLayout(spacing: 8) {
@@ -172,7 +172,7 @@ private struct BackToCurrentButton: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
-        .help("回到当前播放位置")
+        .help(L("回到当前播放位置"))
     }
 }
 
@@ -188,12 +188,12 @@ private struct EmptyTranscriptView: View {
                     .font(.system(size: 46, weight: .light))
                     .foregroundStyle(Color.brand)
             }
-            Text("还没有文字记录")
+            Text(L("还没有文字记录"))
                 .font(.system(size: 15, weight: .medium))
                 .foregroundStyle(Color.textPrimary)
-            Button("导入 SRT 字幕", action: importAction)
+            Button(L("导入 SRT 字幕"), action: importAction)
                 .buttonStyle(PrimaryButtonStyle())
-            Text("支持 .srt，可直接拖入窗口")
+            Text(L("支持 .srt，可直接拖入窗口"))
                 .font(.system(size: 12))
                 .foregroundStyle(Color.textTertiary)
             Spacer()

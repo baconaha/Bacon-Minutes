@@ -19,10 +19,20 @@ struct AppLogo: View {
 // MARK: - Avatar
 
 enum AvatarText {
+    /// Generic speaker words in every UI language ("说话人", "Speaker", "話者" …).
+    private static let genericPrefixes: [String] = {
+        var out = ["说话人", "Speaker", "speaker"]
+        for lang in AppLanguage.allCases {
+            let word = L("说话人 {0}", in: lang, "").trimmingCharacters(in: .whitespaces)
+            if !word.isEmpty, !out.contains(word) { out.append(word) }
+        }
+        return out
+    }()
+
     /// "说话人 3" / "Speaker 3" → "3"; otherwise the first character.
     static func initial(for name: String) -> String {
         let t = name.trimmingCharacters(in: .whitespaces)
-        for prefix in ["说话人", "Speaker", "speaker"] where t.hasPrefix(prefix) {
+        for prefix in genericPrefixes where t.hasPrefix(prefix) {
             let rest = t.dropFirst(prefix.count).trimmingCharacters(in: .whitespaces)
             if !rest.isEmpty, rest.allSatisfy({ $0.isNumber }) { return String(rest.prefix(2)) }
         }
@@ -165,15 +175,18 @@ struct TextLinkButtonStyle: ButtonStyle {
 struct IconButtonStyle: ButtonStyle {
     var size: CGFloat = 28
     var foreground: Color = .textSecondary
+    /// Hover background; pass `.card` on the gray sidebar, where `.rowHover` is barely visible.
+    var hoverFill: Color = .rowHover
 
     func makeBody(configuration: Configuration) -> some View {
-        IconBody(configuration: configuration, size: size, foreground: foreground)
+        IconBody(configuration: configuration, size: size, foreground: foreground, hoverFill: hoverFill)
     }
 
     private struct IconBody: View {
         let configuration: ButtonStyleConfiguration
         let size: CGFloat
         let foreground: Color
+        let hoverFill: Color
         @State private var hovering = false
 
         var body: some View {
@@ -181,7 +194,8 @@ struct IconButtonStyle: ButtonStyle {
                 .font(.system(size: 14))
                 .foregroundStyle(foreground)
                 .frame(width: size, height: size)
-                .background(RoundedRectangle(cornerRadius: 6).fill(hovering ? Color.rowHover : Color.clear))
+                .background(RoundedRectangle(cornerRadius: 6).fill(hovering ? hoverFill : Color.clear))
+                .animation(.easeOut(duration: 0.12), value: hovering)
                 .opacity(configuration.isPressed ? 0.7 : 1)
                 .contentShape(Rectangle())
                 .onHover { hovering = $0 }
@@ -191,18 +205,21 @@ struct IconButtonStyle: ButtonStyle {
 
 // MARK: - Tabs
 
-/// Text tab with a 2pt underline as wide as the text (§10).
+/// Text tab with a 2pt underline as wide as the text (§10). Hovering turns the title blue
+/// and shows the pointing hand.
 struct UnderlineTab: View {
     let title: String
     let selected: Bool
     var fontSize: CGFloat = 15
     let action: () -> Void
+    @State private var hovering = false
 
     var body: some View {
         Button(action: action) {
             Text(title)
                 .font(.system(size: fontSize, weight: selected ? .semibold : .regular))
-                .foregroundStyle(selected ? Color.brand : Color.textSecondary)
+                .foregroundStyle(selected || hovering ? Color.brand : Color.textSecondary)
+                .animation(.easeOut(duration: 0.12), value: hovering)
                 .padding(.bottom, 10)
                 .overlay(alignment: .bottom) {
                     Rectangle()
@@ -212,6 +229,23 @@ struct UnderlineTab: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .pointingHandCursor { hovering = $0 }
+    }
+}
+
+extension View {
+    /// Shows the pointing hand while the pointer is over the view.
+    func pointingHandCursor(_ onHover: ((Bool) -> Void)? = nil) -> some View {
+        onContinuousHover { phase in
+            switch phase {
+            case .active:
+                NSCursor.pointingHand.set()
+                onHover?(true)
+            case .ended:
+                NSCursor.arrow.set()
+                onHover?(false)
+            }
+        }
     }
 }
 
