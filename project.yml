@@ -17,7 +17,6 @@ targets:
       - path: App/Sources
       - path: App/Resources
       - path: Sources/MinutesCore
-        group: MinutesCore
     settings:
       base:
         PRODUCT_NAME: LocalMinutes
