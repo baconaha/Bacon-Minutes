@@ -9,7 +9,7 @@ enum LLMProtocol: String, Codable, CaseIterable, Identifiable {
 
     var displayName: String {
         switch self {
-        case .openAI: return "OpenAI 兼容"
+        case .openAI: return L("OpenAI 兼容")
         case .anthropic: return "Anthropic"
         case .azure: return "Azure OpenAI"
         }
@@ -20,25 +20,49 @@ enum OutputLanguage: String, Codable, CaseIterable, Identifiable {
     case followSource
     case simplifiedChinese
     case english
+    case japanese, korean, spanish, vietnamese, french, portuguese, russian
 
     var id: String { rawValue }
 
-    /// Shown in the picker and injected verbatim into the user prompt.
+    /// Injected verbatim into the (Chinese) user prompt, so it does not follow the UI language.
     var label: String {
         switch self {
         case .followSource: return "跟随原文"
         case .simplifiedChinese: return "简体中文"
         case .english: return "English"
+        case .japanese: return "日本語"
+        case .korean: return "한국어"
+        case .spanish: return "Español"
+        case .vietnamese: return "Tiếng Việt"
+        case .french: return "Français"
+        case .portuguese: return "Português"
+        case .russian: return "Русский"
         }
+    }
+
+    /// Shown in the settings picker.
+    var displayName: String {
+        self == .followSource ? L("跟随原文") : label
     }
 }
 
 struct ProviderPreset: Identifiable, Hashable {
     let id: String
-    let name: String
+    /// Chinese name; `name` gives it in the UI language.
+    let nameKey: String
     let protocolKind: LLMProtocol
     let baseURL: String
     let defaultModel: String
+
+    init(id: String, name: String, protocolKind: LLMProtocol, baseURL: String, defaultModel: String) {
+        self.id = id
+        nameKey = name
+        self.protocolKind = protocolKind
+        self.baseURL = baseURL
+        self.defaultModel = defaultModel
+    }
+
+    var name: String { L(nameKey) }
 
     static let customID = "custom"
 

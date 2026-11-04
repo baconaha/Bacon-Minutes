@@ -6,7 +6,9 @@ struct TranscriptPanel: View {
     @FocusState private var searchFocused: Bool
 
     var body: some View {
-        if model.transcript == nil {
+        if !model.isLoaded {
+            Color.clear
+        } else if model.transcript == nil {
             EmptyTranscriptView { model.chooseAndImportSRT() }
         } else {
             VStack(spacing: 0) {
@@ -42,7 +44,7 @@ struct TranscriptPanel: View {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 13))
                     .foregroundStyle(Color.textTertiary)
-                TextField("搜索", text: $model.searchQuery)
+                TextField(L("搜索"), text: $model.searchQuery)
                     .textFieldStyle(.plain)
                     .font(.system(size: 13))
                     .focused($searchFocused)
@@ -70,27 +72,14 @@ struct TranscriptPanel: View {
             }
 
             if !model.searchQuery.isEmpty {
-                Button("取消") {
+                Button(L("取消")) {
                     model.clearSearch()
                     searchFocused = false
                 }
                 .buttonStyle(TextLinkButtonStyle())
             }
 
-            Menu {
-                Button("导出 SRT") { model.export(.srt) }
-                Button("导出 TXT（带时间戳与发言人）") { model.export(.txt) }
-                Button("导出 Markdown（纪要 + 文字记录）") { model.export(.markdown) }
-            } label: {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 14))
-                    .foregroundStyle(Color.textSecondary)
-                    .frame(width: 28, height: 28)
-            }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .fixedSize()
-            .help("导出文字记录")
+            MoreMenuButton(help: L("导出文字记录")) { exportMenuItems(for: model) }
         }
     }
 }
@@ -101,7 +90,7 @@ private struct KeywordSuggestions: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("推荐关键词")
+            Text(L("推荐关键词"))
                 .font(.system(size: 12))
                 .foregroundStyle(Color.textTertiary)
             FlowLayout(spacing: 8) {
@@ -183,7 +172,7 @@ private struct BackToCurrentButton: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
-        .help("回到当前播放位置")
+        .help(L("回到当前播放位置"))
     }
 }
 
@@ -199,12 +188,12 @@ private struct EmptyTranscriptView: View {
                     .font(.system(size: 46, weight: .light))
                     .foregroundStyle(Color.brand)
             }
-            Text("还没有文字记录")
+            Text(L("还没有文字记录"))
                 .font(.system(size: 15, weight: .medium))
                 .foregroundStyle(Color.textPrimary)
-            Button("导入 SRT 字幕", action: importAction)
+            Button(L("导入 SRT 字幕"), action: importAction)
                 .buttonStyle(PrimaryButtonStyle())
-            Text("支持 .srt，可直接拖入窗口")
+            Text(L("支持 .srt，可直接拖入窗口"))
                 .font(.system(size: 12))
                 .foregroundStyle(Color.textTertiary)
             Spacer()

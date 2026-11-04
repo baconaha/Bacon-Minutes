@@ -187,8 +187,9 @@ final class SummaryGenerator {
 
     func generate(input: SummaryInput, config: LLMConfig, apiKey: String,
                   progress: @escaping @Sendable (SummaryProgress) -> Void) async throws -> SummaryDraft {
-        guard !input.lines.isEmpty else { throw LLMError.notConfigured("文字记录为空，无法生成纪要") }
-        let durationText = TimeFormat.durationCN(input.duration)
+        guard !input.lines.isEmpty else { throw LLMError.notConfigured(L("文字记录为空，无法生成纪要")) }
+        // The prompt is Chinese whatever the UI language is.
+        let durationText = TimeFormat.duration(input.duration, language: .zhHans)
         let chunks = Self.chunk(lines: input.lines, maxChars: config.maxInputChars)
 
         if chunks.count <= 1 {
@@ -264,7 +265,7 @@ final class SummaryGenerator {
         }
 
         let todos = raw.todos.map {
-            TodoItem(content: $0.content, owner: $0.owner.isEmpty ? "未指定" : $0.owner, time: snap($0.time, starts: starts))
+            TodoItem(content: $0.content, owner: $0.owner.isEmpty ? L("未指定") : $0.owner, time: snap($0.time, starts: starts))
         }
 
         var seen = Set<String>()

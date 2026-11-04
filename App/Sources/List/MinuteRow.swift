@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct MinuteRow: View {
@@ -19,7 +20,7 @@ struct MinuteRow: View {
                 MinuteThumbnail(image: app.library.thumbnails[minute.id], isAudio: minute.isAudioOnly)
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
-                        if minute.hasSummary && !isTrash { TagLabel(text: "纪要") }
+                        if minute.hasSummary && !isTrash { TagLabel(text: L("纪要")) }
                         Text(minute.title)
                             .font(.system(size: 14))
                             .foregroundStyle(Color.textPrimary)
@@ -28,8 +29,14 @@ struct MinuteRow: View {
                             .multilineTextAlignment(.leading)
                     }
                     HStack(spacing: 8) {
-                        Text(TimeFormat.durationCN(minute.duration))
-                        if !minute.hasTranscript { Text("· 无字幕") }
+                        Text(TimeFormat.duration(minute.duration))
+                        if !minute.hasTranscript { Text(L("· 无字幕")) }
+                        if app.currentFolderID == nil, let fid = minute.folderID, let folder = app.library.userFolder(fid) {
+                            HStack(spacing: 3) {
+                                Image(systemName: "folder").font(.system(size: 10))
+                                Text(folder.name).lineLimit(1)
+                            }
+                        }
                     }
                     .font(.system(size: 12))
                     .foregroundStyle(Color.textTertiary)
@@ -40,16 +47,15 @@ struct MinuteRow: View {
 
             if isTrash {
                 Text(TimeFormat.createdDate(minute.deletedAt ?? Date()))
-                    .frame(width: 150, alignment: .leading)
-                Text(remainingText)
-                    .frame(width: 90, alignment: .leading)
+                    .frame(width: 190, alignment: .leading)
                 HStack(spacing: 12) {
-                    Button("恢复") { app.restore([minute.id]) }.buttonStyle(TextLinkButtonStyle())
-                    Button("彻底删除") { app.deleteForever([minute.id]) }.buttonStyle(TextLinkButtonStyle())
+                    Button(L("恢复")) { app.restore([minute.id]) }.buttonStyle(TextLinkButtonStyle())
+                    Button(L("彻底删除")) { app.deleteForever([minute.id]) }.buttonStyle(TextLinkButtonStyle())
                 }
-                .frame(width: 130, alignment: .leading)
+                .lineLimit(1)
+                .frame(width: 220, alignment: .leading)
             } else {
-                Text(TimeFormat.dateOnly(app.sort == .opened && app.section == .all || app.section == .recent
+                Text(TimeFormat.dateOnly(app.section == .recent || app.sort == .opened
                                          ? (minute.lastOpenedAt ?? minute.createdAt) : minute.createdAt))
                     .frame(width: 170, alignment: .leading)
                 actionsMenu.frame(width: 48, alignment: .leading)
@@ -65,6 +71,11 @@ struct MinuteRow: View {
         )
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
+        .onDrag {
+            // Drag to a sidebar folder; dragging a selected row carries the whole selection.
+            let ids = isSelected && app.selection.count > 1 ? Array(app.selection) : [minute.id]
+            return NSItemProvider(object: ids.map(\.uuidString).joined(separator: "\n") as NSString)
+        }
         .onTapGesture {
             if isTrash {
                 if isSelected { app.selection.remove(minute.id) } else { app.selection.insert(minute.id) }
@@ -74,42 +85,42 @@ struct MinuteRow: View {
         }
         .contextMenu {
             if isTrash {
-                Button("恢复") { app.restore([minute.id]) }
-                Button("彻底删除") { app.deleteForever([minute.id]) }
+                Button(L("恢复")) { app.restore([minute.id]) }
+                Button(L("彻底删除")) { app.deleteForever([minute.id]) }
             } else {
                 menuItems
             }
         }
     }
 
-    private var remainingText: String {
-        guard let deleted = minute.deletedAt else { return "" }
-        let expiry = deleted.addingTimeInterval(Double(Library.trashRetentionDays) * 86_400)
-        let days = Int(ceil(expiry.timeIntervalSinceNow / 86_400))
-        return days <= 1 ? "1 天" : "\(days) 天"
-    }
-
     @ViewBuilder
     private var menuItems: some View {
-        Button("重命名") { app.beginRename(minute.id) }
-        Button("在 Finder 中显示媒体") { app.revealMedia(minute.id) }
-        Button("重新导入 SRT…") { app.reimportSRT(minute.id) }
+        Button(L("重命名")) { app.beginRename(minute.id) }
+        Button(L("移动到文件夹…")) { app.moveTarget = [minute.id] }
+        Button(L("在 Finder 中显示媒体")) { app.revealMedia(minute.id) }
+        Button(L("重新导入 SRT…")) { app.reimportSRT(minute.id) }
         Divider()
-        Button("移到回收站") { app.moveToTrash([minute.id]) }
+        Button(L("移到回收站")) { app.requestMoveToTrash([minute.id]) }
     }
 
+    /// Opens on click (not hover) with the flip-down animation.
     private var actionsMenu: some View {
-        Menu {
-            menuItems
-        } label: {
-            Image(systemName: "ellipsis")
-                .font(.system(size: 14))
-                .foregroundStyle(Color.textSecondary)
-                .frame(width: 28, height: 28)
+        MoreMenuButton(help: L("操作"), openOnHover: false) {
+            var items: [DropdownItem] = [
+                .button(L("重命名"), icon: "pencil") { app.beginRename(minute.id) },
+                .button(L("移动到文件夹…"), icon: "folder") { app.moveTarget = [minute.id] },
+            ]
+            if minute.folderID != nil {
+                items.append(.button(L("移出文件夹"), icon: "folder.badge.minus") { app.moveMinutes([minute.id], toFolder: nil) })
+            }
+            items += [
+                .button(L("在 Finder 中显示媒体"), icon: "magnifyingglass") { app.revealMedia(minute.id) },
+                .button(L("重新导入 SRT…"), icon: "captions.bubble") { app.reimportSRT(minute.id) },
+                .divider,
+                .button(L("移到回收站"), icon: "trash", destructive: true) { app.requestMoveToTrash([minute.id]) },
+            ]
+            return items
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
     }
 }
 

@@ -15,6 +15,7 @@ struct TranscriptTextView: NSViewRepresentable {
 
     func updateNSView(_ nsView: NSScrollView, context: Context) {
         _ = model.documentVersion
+        _ = model.transcriptRevealed
         context.coordinator.syncDocument()
     }
 
@@ -42,7 +43,9 @@ final class TranscriptTextController: NSObject {
     init(model: DetailModel) {
         let storage = NSTextStorage()
         let layout = NSLayoutManager()
-        layout.allowsNonContiguousLayout = true
+        // Full layout: non-contiguous layout estimates the height of unlaid text, which put
+        // far-away scroll targets in the wrong place and left blank gaps after resizing.
+        layout.allowsNonContiguousLayout = false
         storage.addLayoutManager(layout)
         let container = NSTextContainer(size: NSSize(width: 480, height: CGFloat.greatestFiniteMagnitude))
         container.widthTracksTextView = true
@@ -105,24 +108,42 @@ final class TranscriptTextController: NSObject {
     // MARK: Document
 
     func syncDocument() {
-        guard let model, model.documentVersion != docVersion else { return }
+        guard let model, model.transcriptRevealed, model.documentVersion != docVersion else { return }
         docVersion = model.documentVersion
         document = model.document
         let clip = scrollView.contentView
         let savedOrigin = clip.bounds.origin
+        let firstFill = (textView.textStorage?.length ?? 0) == 0 && document != nil
+        // Fade the text view, not the scroll view: SwiftUI owns the scroll view's opacity
+        // (the tab switch hides it), and setting it here fought with that.
+        if firstFill { textView.alphaValue = 0 }
         textView.textStorage?.setAttributedString(document?.attributed ?? NSAttributedString())
+        scrollView.syncDocumentWidth()
+        if let lm = textView.layoutManager, let tc = textView.textContainer { lm.ensureLayout(for: tc) }
         cueRange = nil
         charRange = nil
         hitRanges = model.searchHits.map(\.range)
         currentHit = model.searchHits.isEmpty ? nil : model.currentHitIndex
         repaintAll()
         if savedOrigin.y > 0 {
-            clip.setBoundsOrigin(savedOrigin)
+            clip.setBoundsOrigin(NSPoint(x: 0, y: savedOrigin.y))
             scrollView.reflectScrolledClipView(clip)
         }
         // Highlight state lives in the observable model; update it outside the SwiftUI view update.
+        // The playhead may have been placed (resume position) before the text was filled, so
+        // bring its cue into view now.
         Task { @MainActor [weak self] in
-            self?.model?.refreshHighlight()
+            guard let self, let model = self.model else { return }
+            model.refreshHighlight()
+            if firstFill, model.isFollowing, let cue = model.currentCueID {
+                self.scrollToCue(cue, animated: false)
+            }
+        }
+        if firstFill {
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.2
+                self.textView.animator().alphaValue = 1
+            }
         }
     }
 
@@ -234,10 +255,13 @@ final class TranscriptTextController: NSObject {
         guard let rect = rect(forCharacterRange: range) else { return }
         let clip = scrollView.contentView
         let visibleHeight = clip.bounds.height
-        let docHeight = textView.frame.height
+        var docHeight = textView.frame.height
+        if let lm = textView.layoutManager, let tc = textView.textContainer {
+            docHeight = max(docHeight, lm.usedRect(for: tc).maxY + textView.textContainerInset.height * 2)
+        }
         var y = rect.minY - visibleHeight / 3
         y = max(0, min(y, max(0, docHeight - visibleHeight)))
-        let target = NSPoint(x: clip.bounds.origin.x, y: y)
+        let target = NSPoint(x: 0, y: y)
         guard abs(clip.bounds.origin.y - y) > 1 else { return }
         if animated {
             NSAnimationContext.runAnimationGroup({ ctx in
@@ -320,9 +344,35 @@ final class TranscriptTextController: NSObject {
 final class TranscriptScrollView: NSScrollView {
     var onUserScroll: (() -> Void)?
 
+    /// Keeps the text view exactly as wide as the visible area so paragraphs re-wrap on resize
+    /// and never scroll sideways.
+    func syncDocumentWidth() {
+        guard let tv = documentView as? NSTextView else { return }
+        let width = contentSize.width
+        if width > 0, abs(tv.frame.width - width) > 0.5 {
+            tv.setFrameSize(NSSize(width: width, height: tv.frame.height))
+        }
+        let origin = contentView.bounds.origin
+        if origin.x != 0 {
+            contentView.setBoundsOrigin(NSPoint(x: 0, y: origin.y))
+            reflectScrolledClipView(contentView)
+        }
+    }
+
+    override func tile() {
+        super.tile()
+        syncDocumentWidth()
+    }
+
     override func scrollWheel(with event: NSEvent) {
         onUserScroll?()
         super.scrollWheel(with: event)
+    }
+
+    /// Sentences are click targets, so the pointer is a hand rather than the text I-beam.
+    override var documentCursor: NSCursor? {
+        get { .pointingHand }
+        set {}
     }
 }
 
@@ -349,4 +399,17 @@ final class TranscriptNSTextView: NSTextView {
     }
 
     override var acceptsFirstResponder: Bool { true }
+
+    // Pointing hand instead of the I-beam: a click jumps to the sentence.
+    override func resetCursorRects() {
+        addCursorRect(visibleRect, cursor: .pointingHand)
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        NSCursor.pointingHand.set()
+    }
+
+    override func cursorUpdate(with event: NSEvent) {
+        NSCursor.pointingHand.set()
+    }
 }

@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import Observation
+import SwiftUI
 
 enum RightTab { case summary, transcript }
 enum LeftTab { case speakers, fileInfo }
@@ -69,6 +70,11 @@ final class DetailModel {
     @ObservationIgnored private var lastCharOffset: Int?
 
     var isVideoFullscreen = false
+    /// False until `prepare()` has loaded the transcript; empty states stay hidden until then.
+    private(set) var isLoaded = false
+    /// The transcript text view fills (a full TextKit layout) only after the page transition.
+    private(set) var transcriptRevealed = false
+    @ObservationIgnored private var closed = false
 
     @ObservationIgnored private var generationTask: Task<Void, Never>?
     @ObservationIgnored private var autosaveTask: Task<Void, Never>?
@@ -81,11 +87,20 @@ final class DetailModel {
 
     // MARK: Lifecycle
 
-    func start() {
+    /// Loads transcript and summary before the page is shown, so it appears with its content in
+    /// place instead of popping in mid-transition.
+    func prepare() {
         transcript = library.loadTranscript(minute.id)
         summary = library.loadSummary(minute.id)
         rebuildDerived()
+        isLoaded = true
         rightTab = .transcript
+    }
+
+    /// Media, playback and the transcript layout; called once the page transition has finished.
+    func start() {
+        guard !closed else { return }
+        transcriptRevealed = true
         player.onTick = { [weak self] t in self?.handleTick(t) }
         player.onSeekFinished = { [weak self] t in self?.refreshHighlight(at: t) }
         Task { await loadMedia() }
@@ -99,6 +114,7 @@ final class DetailModel {
     }
 
     func close() {
+        closed = true
         persistPosition()
         autosaveTask?.cancel()
         generationTask?.cancel()
@@ -165,7 +181,7 @@ final class DetailModel {
         let access = ScopedAccess(url: url)
         defer { access.stop() }
         guard let bookmark = Bookmarks.make(for: url) else {
-            Alerts.error("无法访问该文件", url.path)
+            Alerts.error(L("无法访问该文件"), url.path)
             return
         }
         player.teardown()
@@ -244,7 +260,7 @@ final class DetailModel {
             rightTab = .transcript
             app.showToast(AppModel.importSummaryText(transcript: tr, duration: duration))
         } catch {
-            Alerts.error("无法导入字幕", error.localizedDescription)
+            Alerts.error(L("无法导入字幕"), error.localizedDescription)
         }
     }
 
@@ -346,6 +362,9 @@ final class DetailModel {
         isFollowing = true
         player.seek(to: t)
         refreshHighlight(at: t)
+        // Bring the target text into view even when the highlighted cue did not change
+        // (e.g. the user had scrolled the transcript away).
+        if let cue = currentCueID { textController?.scrollToCue(cue, animated: true) }
         if play { player.play() }
     }
 
@@ -450,12 +469,12 @@ final class DetailModel {
 
     func generateSummary() {
         guard let tr = transcript else {
-            summaryState = .failed("请先导入 SRT 字幕，再生成智能纪要")
+            summaryState = .failed(L("请先导入 SRT 字幕，再生成智能纪要"))
             return
         }
         let config = settings.llm
         guard config.isConfigured else {
-            summaryState = .failed("请先在 API 设置中填写 Base URL 与模型")
+            summaryState = .failed(L("请先在 API 设置中填写 Base URL 与模型"))
             return
         }
         generationTask?.cancel()
@@ -464,7 +483,7 @@ final class DetailModel {
         let apiKey = settings.apiKey
         let hash = transcriptHash
         let generator = SummaryGenerator(client: LLMClient(compat: settings.compatStore))
-        summaryState = .generating("正在生成…")
+        summaryState = .generating(L("正在生成…"))
         rightTab = .summary
         let model = self
         generationTask = Task {
@@ -484,9 +503,9 @@ final class DetailModel {
     private func updateProgress(_ p: SummaryProgress) {
         guard isGenerating else { return }
         switch p {
-        case .single: summaryState = .generating("正在生成…")
-        case .part(let i, let n): summaryState = .generating("正在生成… 第 \(i)/\(n) 部分")
-        case .merging: summaryState = .generating("正在合并各部分…")
+        case .single: summaryState = .generating(L("正在生成…"))
+        case .part(let i, let n): summaryState = .generating(L("正在生成… 第 {0}/{1} 部分", i, n))
+        case .merging: summaryState = .generating(L("正在合并各部分…"))
         }
     }
 
@@ -517,23 +536,12 @@ final class DetailModel {
         summaryState = .idle
     }
 
-    func setFeedback(_ value: Int, chapters: Bool) {
-        guard var s = summary else { return }
-        if chapters {
-            s.chaptersFeedback = s.chaptersFeedback == value ? nil : value
-        } else {
-            s.feedback = s.feedback == value ? nil : value
-        }
-        summary = s
-        library.saveSummary(s, id: minute.id)
-    }
-
     func copySummaryMarkdown() {
         guard let s = summary else { return }
         let pb = NSPasteboard.general
         pb.clearContents()
         pb.setString(Exporter.summaryMarkdown(s, useHours: useHours), forType: .string)
-        app.showToast("已复制为 Markdown")
+        app.showToast(L("已复制为 Markdown"))
     }
 
     // MARK: Export (§2)
@@ -561,9 +569,10 @@ final class DetailModel {
 
     var tags: [(String, Bool)] {
         var out: [(String, Bool)] = []
-        if mediaState == .missing { out.append(("媒体缺失", true)) }
-        if transcript == nil { out.append(("无字幕", true)) }
-        if summary != nil { out.append(("已生成纪要", false)) }
+        guard isLoaded else { return out }
+        if mediaState == .missing { out.append((L("媒体缺失"), true)) }
+        if transcript == nil { out.append((L("无字幕"), true)) }
+        if summary != nil { out.append((L("已生成纪要"), false)) }
         return out
     }
 

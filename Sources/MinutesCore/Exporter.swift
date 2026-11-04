@@ -25,29 +25,29 @@ enum Exporter {
 
     static func summaryMarkdown(_ s: Summary, useHours: Bool, headingLevel: Int = 2) -> String {
         let h = String(repeating: "#", count: headingLevel)
-        var out = "\(h) 会议纪要\n\n"
+        var out = "\(h) \(L("会议纪要"))\n\n"
         if !s.overview.isEmpty { out += s.overview + "\n\n" }
         for kp in s.keyPoints {
-            out += "- **\(kp.title)**：\(kp.content)\n"
+            out += "- **\(kp.title)**\(L("："))\(kp.content)\n"
         }
         if !s.keyPoints.isEmpty { out += "\n" }
-        out += "\(h)# 待办\n\n"
+        out += "\(h)# \(L("待办"))\n\n"
         if s.todos.isEmpty {
-            out += "本场会议无待办内容\n\n"
+            out += L("本场会议无待办内容") + "\n\n"
         } else {
             for t in s.todos {
                 out += "- [ ] \(t.content) · \(t.owner) · \(TimeFormat.timestamp(t.time, hours: useHours))\n"
             }
             out += "\n"
         }
-        out += "\(h) 章节纪要\n\n"
+        out += "\(h) \(L("章节纪要"))\n\n"
         for c in s.chapters {
             out += "\(h)# \(TimeFormat.timestamp(c.time, hours: useHours)) \(c.title)\n\n\(c.summary)\n\n"
         }
         if !s.keywords.isEmpty {
-            out += "\(h) 关键词\n\n" + s.keywords.joined(separator: "、") + "\n\n"
+            out += "\(h) \(L("关键词"))\n\n" + s.keywords.joined(separator: Localizer.shared.language.listSeparator) + "\n\n"
         }
-        out += "> 智能纪要由 AI 生成，请谨慎使用\n"
+        out += "> " + L("智能纪要由 AI 生成，请谨慎使用") + "\n"
         return out
     }
 
@@ -55,14 +55,14 @@ enum Exporter {
                          transcript: Transcript?, paragraphs: [Paragraph], insertComma: Bool) -> String {
         let useHours = TimeFormat.usesHours(totalDuration: duration)
         var out = "# \(title)\n\n"
-        out += "\(TimeFormat.createdDate(createdAt)) · \(TimeFormat.durationCN(duration))\n\n"
+        out += "\(TimeFormat.createdDate(createdAt)) · \(TimeFormat.duration(duration))\n\n"
         if let summary {
-            out += "## 智能纪要\n\n"
+            out += "## \(L("智能纪要"))\n\n"
             out += summaryMarkdown(summary, useHours: useHours, headingLevel: 3)
             out += "\n"
         }
         if let transcript {
-            out += "## 文字记录\n\n"
+            out += "## \(L("文字记录"))\n\n"
             for p in paragraphs {
                 let body = ParagraphBuilder.text(of: p, cues: transcript.cues, insertComma: insertComma)
                 out += "**\(transcript.speakerName(p.speakerID))** `\(TimeFormat.timestamp(p.start, hours: useHours))`\n\n"

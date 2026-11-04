@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import Observation
+import SwiftUI
 
 enum Route: Equatable {
     case list
@@ -13,9 +14,9 @@ enum ListSection: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .all: return "全部"
-        case .recent: return "最近打开"
-        case .trash: return "回收站"
+        case .all: return L("全部")
+        case .recent: return L("最近打开")
+        case .trash: return L("回收站")
         }
     }
 
@@ -28,14 +29,42 @@ enum ListSection: String, CaseIterable, Identifiable {
     }
 }
 
+/// What the list page shows: a fixed section or one user folder.
+enum ListScope: Hashable {
+    case all, recent, trash
+    case folder(UUID)
+}
+
+extension ListSection {
+    var scope: ListScope {
+        switch self {
+        case .all: return .all
+        case .recent: return .recent
+        case .trash: return .trash
+        }
+    }
+}
+
+/// A confirmation shown as an in-app dialog (Feishu style) instead of an NSAlert.
+struct ConfirmRequest: Identifiable {
+    let id = UUID()
+    var title: String
+    var message: String
+    var confirmTitle: String
+    var cancelTitle = L("取消")
+    /// Shown in bold under the message (e.g. that the original media file is kept).
+    var emphasis: String? = nil
+    var onConfirm: () -> Void
+}
+
 enum ListSort: String, CaseIterable, Identifiable {
     case created, opened
     var id: String { rawValue }
 
     var title: String {
         switch self {
-        case .created: return "最近创建"
-        case .opened: return "最近打开"
+        case .created: return L("最近创建")
+        case .opened: return L("最近打开")
         }
     }
 }
@@ -52,7 +81,7 @@ final class AppModel {
     let library: Library
 
     var route: Route = .list
-    var section: ListSection = .all
+    var section: ListScope = .all
     var sort: ListSort = .created
     var listQuery = ""
     var selection: Set<UUID> = []
@@ -67,7 +96,20 @@ final class AppModel {
     var renameTarget: UUID?
     var renameText = ""
 
+    var confirmRequest: ConfirmRequest?
+    /// Minutes being moved with the "移动到文件夹" dialog.
+    var moveTarget: Set<UUID>?
+    /// Folder whose properties dialog is open.
+    var folderInfoTarget: UUID?
+    /// Folder whose name is being edited inline in the sidebar.
+    var renamingFolderID: UUID?
+
+    var isDialogOpen: Bool { confirmRequest != nil || moveTarget != nil || folderInfoTarget != nil }
+
     @ObservationIgnored weak var mainWindow: NSWindow?
+    /// Traffic-light buttons are hidden in full screen, so top bars can start at the left edge.
+    var isWindowFullScreen = false
+    @ObservationIgnored private var fullScreenObservers: [NSObjectProtocol] = []
     @ObservationIgnored private var toastTask: Task<Void, Never>?
     private let keyMonitor: KeyMonitor
     @ObservationIgnored private var terminateObserver: NSObjectProtocol?
@@ -87,6 +129,22 @@ final class AppModel {
         Task { await library.load() }
     }
 
+    func attachWindow(_ window: NSWindow?) {
+        guard let window, window !== mainWindow else { return }
+        mainWindow = window
+        isWindowFullScreen = window.styleMask.contains(.fullScreen)
+        for o in fullScreenObservers { NotificationCenter.default.removeObserver(o) }
+        let center = NotificationCenter.default
+        fullScreenObservers = [
+            center.addObserver(forName: NSWindow.willEnterFullScreenNotification, object: window, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.isWindowFullScreen = true }
+            },
+            center.addObserver(forName: NSWindow.willExitFullScreenNotification, object: window, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.isWindowFullScreen = false }
+            },
+        ]
+    }
+
     // MARK: Navigation
 
     func open(_ id: UUID) {
@@ -95,18 +153,100 @@ final class AppModel {
         m.lastOpenedAt = Date()
         library.save(m)
         let d = DetailModel(minute: m, app: self)
-        detail = d
-        route = .detail(id)
+        d.prepare()
         selection = []
-        d.start()
+        withAnimation(.easeOut(duration: 0.22)) {
+            detail = d
+            route = .detail(id)
+        }
+        // Media and the transcript's text layout start once the page has settled, so the
+        // transition itself never stalls.
+        Task {
+            try? await Task.sleep(nanoseconds: 240_000_000)
+            d.start()
+        }
     }
 
     func backToList() {
-        guard detail != nil else { return }
-        if detail?.isVideoFullscreen == true { detail?.setFullscreen(false) }
-        detail?.close()
-        detail = nil
-        route = .list
+        guard let d = detail else { return }
+        if d.isVideoFullscreen { d.setFullscreen(false) }
+        d.close()
+        withAnimation(.easeOut(duration: 0.18)) {
+            detail = nil
+            route = .list
+        }
+    }
+
+    // MARK: Folders
+
+    var currentFolderID: UUID? {
+        if case .folder(let id) = section { return id }
+        return nil
+    }
+
+    var sectionTitle: String {
+        switch section {
+        case .all: return L("全部")
+        case .recent: return L("最近打开")
+        case .trash: return L("回收站")
+        case .folder(let id): return library.userFolder(id)?.name ?? L("文件夹")
+        }
+    }
+
+    func createFolder() {
+        var name = L("新建文件夹")
+        var n = 2
+        let names = Set(library.folders.map(\.name))
+        while names.contains(name) {
+            name = L("新建文件夹 {0}", n)
+            n += 1
+        }
+        let f = library.createFolder(named: name)
+        section = .folder(f.id)
+        selection = []
+        renamingFolderID = f.id
+    }
+
+    func renameFolder(_ id: UUID, to name: String) {
+        let t = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !t.isEmpty { library.renameFolder(id, to: t) }
+        if renamingFolderID == id { renamingFolderID = nil }
+    }
+
+    func requestDeleteFolder(_ id: UUID) {
+        guard let f = library.userFolder(id) else { return }
+        let count = library.stats(inFolder: id).count
+        confirmRequest = ConfirmRequest(
+            title: L("删除文件夹「{0}」？", f.name),
+            message: count > 0 ? L("文件夹里的 {0} 个妙记不会被删除，仍会保留在「全部」中。", count) : L("这个文件夹是空的。"),
+            confirmTitle: L("删除文件夹")
+        ) { [weak self] in
+            guard let self else { return }
+            if self.section == .folder(id) { self.section = .all }
+            self.library.deleteFolder(id)
+            self.showToast(L("已删除文件夹"))
+        }
+    }
+
+    func moveMinutes(_ ids: Set<UUID>, toFolder folderID: UUID?) {
+        let valid = ids.filter { library.minute($0) != nil }
+        guard !valid.isEmpty else { return }
+        library.move(valid, toFolder: folderID)
+        if let folderID, let f = library.userFolder(folderID) {
+            showToast(valid.count == 1 ? L("已移动到「{0}」", f.name) : L("已将 {0} 项移动到「{1}」", valid.count, f.name))
+        } else {
+            showToast(L("已移出文件夹"))
+        }
+        selection.subtract(valid)
+    }
+
+    func importIntoFolder(_ id: UUID) {
+        section = .folder(id)
+        presentImportDialog()
+    }
+
+    static func byteText(_ bytes: Int64) -> String {
+        bytes > 0 ? ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file) : "—"
     }
 
     func showToast(_ text: String) {
@@ -139,6 +279,8 @@ final class AppModel {
             items = items.filter { $0.deletedAt == nil && $0.lastOpenedAt != nil }
         case .trash:
             items = items.filter { $0.deletedAt != nil }
+        case .folder(let id):
+            items = items.filter { $0.deletedAt == nil && $0.folderID == id }
         }
         let q = listQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         if !q.isEmpty {
@@ -154,7 +296,7 @@ final class AppModel {
             items.sort { ($0.deletedAt ?? .distantPast) > ($1.deletedAt ?? .distantPast) }
         case .recent:
             items.sort { ($0.lastOpenedAt ?? .distantPast) > ($1.lastOpenedAt ?? .distantPast) }
-        case .all:
+        case .all, .folder:
             if sort == .opened {
                 items.sort { ($0.lastOpenedAt ?? .distantPast, $0.createdAt) > ($1.lastOpenedAt ?? .distantPast, $1.createdAt) }
             } else {
@@ -179,33 +321,50 @@ final class AppModel {
         renameTarget = nil
     }
 
+    /// Asks first (§ user request: deleting needs a confirmation dialog).
+    func requestMoveToTrash(_ ids: Set<UUID>) {
+        guard !ids.isEmpty else { return }
+        let title: String
+        if ids.count == 1, let id = ids.first, let m = library.minute(id) {
+            title = L("将「{0}」移到回收站？", m.title)
+        } else {
+            title = L("将 {0} 个妙记移到回收站？", ids.count)
+        }
+        confirmRequest = ConfirmRequest(title: title, message: L("移到回收站后可以随时恢复。"),
+                                        confirmTitle: L("移到回收站"), emphasis: L("原始媒体文件不会被删除。")) { [weak self] in
+            self?.moveToTrash(ids)
+        }
+    }
+
     func moveToTrash(_ ids: Set<UUID>) {
         guard !ids.isEmpty else { return }
         if let d = detail, ids.contains(d.minute.id) { backToList() }
         library.moveToTrash(ids)
         selection.subtract(ids)
-        showToast(ids.count == 1 ? "已移到回收站" : "已将 \(ids.count) 项移到回收站")
+        showToast(ids.count == 1 ? L("已移到回收站") : L("已将 {0} 项移到回收站", ids.count))
     }
 
     func restore(_ ids: Set<UUID>) {
         guard !ids.isEmpty else { return }
         library.restore(ids)
         selection.subtract(ids)
-        showToast("已恢复")
+        showToast(L("已恢复"))
     }
 
     func deleteForever(_ ids: Set<UUID>) {
         guard !ids.isEmpty else { return }
-        let ok = Alerts.confirm(ids.count == 1 ? "彻底删除这个妙记？" : "彻底删除 \(ids.count) 个妙记？",
-                                "删除后无法恢复。原始音视频文件不会被删除。", ok: "彻底删除", destructive: true)
-        guard ok else { return }
-        library.deletePermanently(ids)
-        selection.subtract(ids)
+        confirmRequest = ConfirmRequest(title: ids.count == 1 ? L("彻底删除这个妙记？") : L("彻底删除 {0} 个妙记？", ids.count),
+                                        message: L("删除后妙记的文字记录和纪要无法恢复。"),
+                                        confirmTitle: L("彻底删除"), emphasis: L("原始媒体文件不会被删除。")) { [weak self] in
+            guard let self else { return }
+            self.library.deletePermanently(ids)
+            self.selection.subtract(ids)
+        }
     }
 
     func revealMedia(_ id: UUID) {
         guard let m = library.minute(id), let r = Bookmarks.resolve(m.mediaBookmark) else {
-            Alerts.error("找不到媒体文件", "文件可能已被移动或删除。打开妙记后可以「重新定位」。")
+            Alerts.error(L("找不到媒体文件"), L("文件可能已被移动或删除。打开妙记后可以「重新定位」。"))
             return
         }
         let access = ScopedAccess(url: r.url)
@@ -219,7 +378,7 @@ final class AppModel {
             let (tr, _) = try attachSRT(url, toMinute: id)
             showToast(Self.importSummaryText(transcript: tr, duration: library.minute(id)?.duration ?? 0))
         } catch {
-            Alerts.error("无法导入字幕", error.localizedDescription)
+            Alerts.error(L("无法导入字幕"), error.localizedDescription)
         }
     }
 
@@ -249,9 +408,9 @@ final class AppModel {
                     presentImportDialog(prefillSubtitle: srt)
                 }
             } else if !subtitles.isEmpty {
-                Alerts.info("请同时选择音视频文件", "字幕需要与对应的音视频一起导入。")
+                Alerts.info(L("请同时选择音视频文件"), L("字幕需要与对应的音视频一起导入。"))
             } else if !files.isEmpty || !urls.isEmpty {
-                Alerts.info("没有可导入的文件", "支持的媒体：mp4 / mov / m4v / mp3 / m4a / wav / aac；字幕：srt。")
+                Alerts.info(L("没有可导入的文件"), L("支持的媒体：mp4 / mov / m4v / mp3 / m4a / wav / aac；字幕：srt。"))
             }
             return
         }
@@ -264,9 +423,9 @@ final class AppModel {
             let result = FilePairing.pair(media: media, subtitles: subtitles, suffixes: settings.general.filenameSuffixes)
             pairs = result.pairs
             for s in result.suggestions {
-                let use = Alerts.confirm("使用「\(s.subtitle.lastPathComponent)」作为字幕？",
-                                         "没有找到与「\(s.media.lastPathComponent)」同名的 SRT，同一文件夹中只有这一个字幕文件。",
-                                         ok: "使用", cancel: "不使用")
+                let use = Alerts.confirm(L("使用「{0}」作为字幕？", s.subtitle.lastPathComponent),
+                                         L("没有找到与「{0}」同名的 SRT，同一文件夹中只有这一个字幕文件。", s.media.lastPathComponent),
+                                         ok: L("使用"), cancel: L("不使用"))
                 if use {
                     pairs.append(FilePairing.Pair(media: s.media, subtitle: s.subtitle))
                 } else {
@@ -282,8 +441,8 @@ final class AppModel {
             await runImport(finalPairs)
             if !leftovers.isEmpty {
                 let names = leftovers.map(\.lastPathComponent).joined(separator: "\n")
-                Alerts.info("有 \(leftovers.count) 个字幕未能配对",
-                            "\(names)\n\n可以打开对应的妙记，在「··· → 重新导入 SRT」或文字记录空状态中手动指定。")
+                Alerts.info(L("有 {0} 个字幕未能配对", leftovers.count),
+                            L("{0}\n\n可以打开对应的妙记，在「··· → 重新导入 SRT」或文字记录空状态中手动指定。", names))
             }
         }
     }
@@ -297,15 +456,16 @@ final class AppModel {
 
     private func runImport(_ pairs: [FilePairing.Pair]) async {
         guard !pairs.isEmpty else { return }
+        let targetFolder = currentFolderID
         isImporting = true
         defer { isImporting = false }
         var created: [(Minute, Transcript?)] = []
         var failures: [String] = []
         for pair in pairs {
             do {
-                created.append(try await createMinute(media: pair.media, subtitle: pair.subtitle))
+                created.append(try await createMinute(media: pair.media, subtitle: pair.subtitle, folderID: targetFolder))
             } catch {
-                failures.append("\(pair.media.lastPathComponent)：\(error.localizedDescription)")
+                failures.append(L("{0}：{1}", pair.media.lastPathComponent, error.localizedDescription))
             }
         }
         if section == .trash { section = .all }
@@ -314,13 +474,13 @@ final class AppModel {
             if let tr {
                 showToast(Self.importSummaryText(transcript: tr, duration: m.duration))
             } else {
-                showToast("已导入「\(m.title)」，时长 \(TimeFormat.compactDuration(m.duration))")
+                showToast(L("已导入「{0}」，时长 {1}", m.title, TimeFormat.compactDuration(m.duration)))
             }
         } else if created.count > 1 {
-            showToast("已导入 \(created.count) 个妙记")
+            showToast(L("已导入 {0} 个妙记", created.count))
         }
         if !failures.isEmpty {
-            Alerts.error("部分文件导入失败", failures.joined(separator: "\n"))
+            Alerts.error(L("部分文件导入失败"), failures.joined(separator: "\n"))
         }
     }
 
@@ -329,17 +489,17 @@ final class AppModel {
         var errorDescription: String? { message }
     }
 
-    private func createMinute(media: URL, subtitle: URL?) async throws -> (Minute, Transcript?) {
+    private func createMinute(media: URL, subtitle: URL?, folderID: UUID?) async throws -> (Minute, Transcript?) {
         let access = ScopedAccess(url: media)
         defer { access.stop() }
         guard let bookmark = Bookmarks.make(for: media) else {
-            throw ImportError(message: "无法访问该文件")
+            throw ImportError(message: L("无法访问该文件"))
         }
         let info: MediaInspector.Info
         do {
             info = try await MediaInspector.inspect(url: media)
         } catch {
-            throw ImportError(message: "无法读取媒体：\(error.localizedDescription)")
+            throw ImportError(message: L("无法读取媒体：{0}", error.localizedDescription))
         }
         let baseName = media.deletingPathExtension().lastPathComponent
         let title = FilePairing.normalizedTitle(baseName, suffixes: settings.general.filenameSuffixes)
@@ -347,6 +507,8 @@ final class AppModel {
         let createdAt = FilePairing.dateFromFileName(baseName, fallback: now) ?? now
         var minute = Minute(title: title, createdAt: createdAt, duration: info.duration, mediaBookmark: bookmark,
                             mediaPath: media.path, mediaFileName: media.lastPathComponent, isAudioOnly: !info.hasVideo)
+        minute.folderID = folderID
+        minute.mediaSize = Library.fileSize(of: media)
         library.save(minute)
 
         var transcript: Transcript?
@@ -355,7 +517,7 @@ final class AppModel {
                 transcript = try attachSRT(subtitle, toMinute: minute.id).0
                 if let m = library.minute(minute.id) { minute = m }
             } catch {
-                Alerts.error("字幕「\(subtitle.lastPathComponent)」解析失败", error.localizedDescription)
+                Alerts.error(L("字幕「{0}」解析失败", subtitle.lastPathComponent), error.localizedDescription)
             }
         }
         if info.hasVideo, let jpeg = await MediaInspector.coverJPEG(url: media, duration: info.duration) {
@@ -395,14 +557,14 @@ final class AppModel {
 
     static func importSummaryText(transcript: Transcript, duration: Double) -> String {
         let d = duration > 0 ? duration : (transcript.cues.map(\.end).max() ?? 0)
-        return "已导入 \(transcript.cues.count) 条字幕，\(transcript.speakers.count) 位发言人，时长 \(TimeFormat.compactDuration(d))"
+        return L("已导入 {0} 条字幕，{1} 位发言人，时长 {2}", transcript.cues.count, transcript.speakers.count, TimeFormat.compactDuration(d))
     }
 
     // MARK: Keyboard (§11)
 
     private func handleKey(_ event: NSEvent) -> Bool {
         guard let window = event.window, window === mainWindow else { return false }
-        if window.attachedSheet != nil || showImportDialog { return false }
+        if window.attachedSheet != nil || showImportDialog || isDialogOpen { return false }
         let editing = KeyMonitor.isEditingText(in: window)
         let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.function, .numericPad, .capsLock])
         let code = event.keyCode
@@ -411,6 +573,8 @@ final class AppModel {
             switch code {
             case 53: // Esc
                 if d.isVideoFullscreen { d.setFullscreen(false); return true }
+                // Leave Esc to a text field being edited (e.g. the title, which it restores).
+                if editing && !d.searchFieldFocused { return false }
                 if !d.searchQuery.isEmpty { d.clearSearch(); return true }
                 return false
             case 36, 76: // Return
@@ -431,7 +595,7 @@ final class AppModel {
         }
 
         if code == 51, mods == .command, !editing, !selection.isEmpty, section != .trash {
-            moveToTrash(selection)
+            requestMoveToTrash(selection)
             return true
         }
         return false
