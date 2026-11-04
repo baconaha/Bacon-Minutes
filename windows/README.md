@@ -4,7 +4,7 @@ Electron port of the macOS app, built from the same spec (`minutes-clone-spec.md
 
 ## Install
 
-Every push builds an installer in GitHub Actions (job **windows**, artifact **LocalMinutes-windows**). Download `LocalMinutes-Setup-<version>-x64.exe` (or `-arm64.exe`) and run it. The installer is not code-signed, so SmartScreen shows "Windows protected your PC" the first time: click **More info → Run anyway**.
+Every push builds an installer in GitHub Actions (job **windows**, artifact **LocalMinutes-windows**). Download `LocalMinutes-Setup-<version>-x64.exe` and run it (Windows on ARM runs it through x64 emulation). The installer is not code-signed, so SmartScreen shows "Windows protected your PC" the first time: click **More info → Run anyway**.
 
 ## Develop
 
