@@ -185,7 +185,7 @@ final class AppModel {
         case .all: return "全部"
         case .recent: return "最近打开"
         case .trash: return "回收站"
-        case .folder(let id): return library.folder(id)?.name ?? "文件夹"
+        case .folder(let id): return library.userFolder(id)?.name ?? "文件夹"
         }
     }
 
@@ -210,7 +210,7 @@ final class AppModel {
     }
 
     func requestDeleteFolder(_ id: UUID) {
-        guard let f = library.folder(id) else { return }
+        guard let f = library.userFolder(id) else { return }
         let count = library.stats(inFolder: id).count
         confirmRequest = ConfirmRequest(
             title: "删除文件夹「\(f.name)」？",
@@ -228,7 +228,7 @@ final class AppModel {
         let valid = ids.filter { library.minute($0) != nil }
         guard !valid.isEmpty else { return }
         library.move(valid, toFolder: folderID)
-        if let folderID, let f = library.folder(folderID) {
+        if let folderID, let f = library.userFolder(folderID) {
             showToast(valid.count == 1 ? "已移动到「\(f.name)」" : "已将 \(valid.count) 项移动到「\(f.name)」")
         } else {
             showToast("已移出文件夹")

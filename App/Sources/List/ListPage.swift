@@ -40,7 +40,7 @@ struct ListPage: View {
     }
 
     private var dropText: String {
-        if let id = app.currentFolderID, let f = app.library.folder(id) { return "松开以导入到「\(f.name)」" }
+        if let id = app.currentFolderID, let f = app.library.userFolder(id) { return "松开以导入到「\(f.name)」" }
         return "松开以导入"
     }
 }

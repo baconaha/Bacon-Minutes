@@ -31,7 +31,7 @@ struct MinuteRow: View {
                     HStack(spacing: 8) {
                         Text(TimeFormat.durationCN(minute.duration))
                         if !minute.hasTranscript { Text("· 无字幕") }
-                        if app.currentFolderID == nil, let fid = minute.folderID, let folder = app.library.folder(fid) {
+                        if app.currentFolderID == nil, let fid = minute.folderID, let folder = app.library.userFolder(fid) {
                             HStack(spacing: 3) {
                                 Image(systemName: "folder").font(.system(size: 10))
                                 Text(folder.name).lineLimit(1)

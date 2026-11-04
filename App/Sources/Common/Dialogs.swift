@@ -161,7 +161,7 @@ struct FolderInfoDialog: View {
     @State private var closing = false
 
     var body: some View {
-        let folder = app.library.folder(folderID)
+        let folder = app.library.userFolder(folderID)
         let stats = app.library.stats(inFolder: folderID)
         FlipDialog(width: 380, onClosed: { app.folderInfoTarget = nil }, closeRequest: $closing) {
             VStack(alignment: .leading, spacing: 18) {

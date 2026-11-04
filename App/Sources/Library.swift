@@ -89,7 +89,7 @@ final class Library {
         write(folders, to: foldersURL)
     }
 
-    func folder(_ id: UUID) -> Folder? { folders.first { $0.id == id } }
+    func userFolder(_ id: UUID) -> Folder? { folders.first { $0.id == id } }
 
     @discardableResult
     func createFolder(named name: String) -> Folder {

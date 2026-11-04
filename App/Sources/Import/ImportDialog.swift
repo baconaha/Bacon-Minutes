@@ -20,7 +20,7 @@ struct ImportDialog: View {
 
             dropZone
 
-            if let id = app.currentFolderID, let folder = app.library.folder(id) {
+            if let id = app.currentFolderID, let folder = app.library.userFolder(id) {
                 HStack(spacing: 6) {
                     Image(systemName: "folder.fill").foregroundStyle(Color.brand)
                     Text("将导入到「\(folder.name)」").foregroundStyle(Color.textSecondary)
