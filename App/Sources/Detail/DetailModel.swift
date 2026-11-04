@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import Observation
+import SwiftUI
 
 enum RightTab { case summary, transcript }
 enum LeftTab { case speakers, fileInfo }
@@ -69,6 +70,8 @@ final class DetailModel {
     @ObservationIgnored private var lastCharOffset: Int?
 
     var isVideoFullscreen = false
+    /// False until `start()` has loaded the transcript; empty states stay hidden until then.
+    private(set) var isLoaded = false
 
     @ObservationIgnored private var generationTask: Task<Void, Never>?
     @ObservationIgnored private var autosaveTask: Task<Void, Never>?
@@ -85,6 +88,7 @@ final class DetailModel {
         transcript = library.loadTranscript(minute.id)
         summary = library.loadSummary(minute.id)
         rebuildDerived()
+        withAnimation(.easeOut(duration: 0.18)) { isLoaded = true }
         rightTab = .transcript
         player.onTick = { [weak self] t in self?.handleTick(t) }
         player.onSeekFinished = { [weak self] t in self?.refreshHighlight(at: t) }
@@ -564,6 +568,7 @@ final class DetailModel {
 
     var tags: [(String, Bool)] {
         var out: [(String, Bool)] = []
+        guard isLoaded else { return out }
         if mediaState == .missing { out.append(("媒体缺失", true)) }
         if transcript == nil { out.append(("无字幕", true)) }
         if summary != nil { out.append(("已生成纪要", false)) }

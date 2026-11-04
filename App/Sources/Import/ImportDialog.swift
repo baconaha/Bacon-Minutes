@@ -20,6 +20,14 @@ struct ImportDialog: View {
 
             dropZone
 
+            if let id = app.currentFolderID, let folder = app.library.folder(id) {
+                HStack(spacing: 6) {
+                    Image(systemName: "folder.fill").foregroundStyle(Color.brand)
+                    Text("将导入到「\(folder.name)」").foregroundStyle(Color.textSecondary)
+                }
+                .font(.system(size: 13))
+            }
+
             VStack(spacing: 10) {
                 FileSlotRow(title: "媒体文件", url: app.importDraft.media, placeholder: "未选择（必选）") {
                     if let url = FilePanels.chooseMedia() { app.importDraft.media = url }

@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import Observation
+import SwiftUI
 
 enum Route: Equatable {
     case list
@@ -28,6 +29,32 @@ enum ListSection: String, CaseIterable, Identifiable {
     }
 }
 
+/// What the list page shows: a fixed section or one user folder.
+enum ListScope: Hashable {
+    case all, recent, trash
+    case folder(UUID)
+}
+
+extension ListSection {
+    var scope: ListScope {
+        switch self {
+        case .all: return .all
+        case .recent: return .recent
+        case .trash: return .trash
+        }
+    }
+}
+
+/// A confirmation shown as an in-app dialog (Feishu style) instead of an NSAlert.
+struct ConfirmRequest: Identifiable {
+    let id = UUID()
+    var title: String
+    var message: String
+    var confirmTitle: String
+    var cancelTitle = "取消"
+    var onConfirm: () -> Void
+}
+
 enum ListSort: String, CaseIterable, Identifiable {
     case created, opened
     var id: String { rawValue }
@@ -52,7 +79,7 @@ final class AppModel {
     let library: Library
 
     var route: Route = .list
-    var section: ListSection = .all
+    var section: ListScope = .all
     var sort: ListSort = .created
     var listQuery = ""
     var selection: Set<UUID> = []
@@ -66,6 +93,16 @@ final class AppModel {
 
     var renameTarget: UUID?
     var renameText = ""
+
+    var confirmRequest: ConfirmRequest?
+    /// Minutes being moved with the "移动到文件夹" dialog.
+    var moveTarget: Set<UUID>?
+    /// Folder whose properties dialog is open.
+    var folderInfoTarget: UUID?
+    /// Folder whose name is being edited inline in the sidebar.
+    var renamingFolderID: UUID?
+
+    var isDialogOpen: Bool { confirmRequest != nil || moveTarget != nil || folderInfoTarget != nil }
 
     @ObservationIgnored weak var mainWindow: NSWindow?
     /// Traffic-light buttons are hidden in full screen, so top bars can start at the left edge.
@@ -114,18 +151,105 @@ final class AppModel {
         m.lastOpenedAt = Date()
         library.save(m)
         let d = DetailModel(minute: m, app: self)
-        detail = d
-        route = .detail(id)
         selection = []
-        d.start()
+        withAnimation(.easeOut(duration: 0.22)) {
+            detail = d
+            route = .detail(id)
+        }
+        // Let the transition start before the transcript is parsed and laid out.
+        Task {
+            try? await Task.sleep(nanoseconds: 70_000_000)
+            d.start()
+        }
     }
 
     func backToList() {
-        guard detail != nil else { return }
-        if detail?.isVideoFullscreen == true { detail?.setFullscreen(false) }
-        detail?.close()
-        detail = nil
-        route = .list
+        guard let d = detail else { return }
+        if d.isVideoFullscreen { d.setFullscreen(false) }
+        d.close()
+        withAnimation(.easeOut(duration: 0.18)) {
+            detail = nil
+            route = .list
+        }
+    }
+
+    // MARK: Folders
+
+    var currentFolderID: UUID? {
+        if case .folder(let id) = section { return id }
+        return nil
+    }
+
+    var sectionTitle: String {
+        switch section {
+        case .all: return "全部"
+        case .recent: return "最近打开"
+        case .trash: return "回收站"
+        case .folder(let id): return library.folder(id)?.name ?? "文件夹"
+        }
+    }
+
+    func createFolder() {
+        var name = "新建文件夹"
+        var n = 2
+        let names = Set(library.folders.map(\.name))
+        while names.contains(name) {
+            name = "新建文件夹 \(n)"
+            n += 1
+        }
+        let f = library.createFolder(named: name)
+        section = .folder(f.id)
+        selection = []
+        renamingFolderID = f.id
+    }
+
+    func renameFolder(_ id: UUID, to name: String) {
+        let t = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !t.isEmpty { library.renameFolder(id, to: t) }
+        if renamingFolderID == id { renamingFolderID = nil }
+    }
+
+    func requestDeleteFolder(_ id: UUID) {
+        guard let f = library.folder(id) else { return }
+        let count = library.stats(inFolder: id).count
+        confirmRequest = ConfirmRequest(
+            title: "删除文件夹「\(f.name)」？",
+            message: count > 0 ? "文件夹里的 \(count) 个妙记不会被删除，仍会保留在「全部」中。" : "这个文件夹是空的。",
+            confirmTitle: "删除文件夹"
+        ) { [weak self] in
+            guard let self else { return }
+            if self.section == .folder(id) { self.section = .all }
+            self.library.deleteFolder(id)
+            self.showToast("已删除文件夹")
+        }
+    }
+
+    func moveMinutes(_ ids: Set<UUID>, toFolder folderID: UUID?) {
+        let valid = ids.filter { library.minute($0) != nil }
+        guard !valid.isEmpty else { return }
+        library.move(valid, toFolder: folderID)
+        if let folderID, let f = library.folder(folderID) {
+            showToast(valid.count == 1 ? "已移动到「\(f.name)」" : "已将 \(valid.count) 项移动到「\(f.name)」")
+        } else {
+            showToast("已移出文件夹")
+        }
+        selection.subtract(valid)
+    }
+
+    func importIntoFolder(_ id: UUID) {
+        section = .folder(id)
+        presentImportDialog()
+    }
+
+    static func shortDuration(_ seconds: Double) -> String {
+        let total = Int(seconds.rounded())
+        let h = total / 3600, m = (total % 3600) / 60
+        if h > 0 { return m > 0 ? "\(h) 小时 \(m) 分" : "\(h) 小时" }
+        return TimeFormat.durationCN(seconds)
+    }
+
+    static func byteText(_ bytes: Int64) -> String {
+        bytes > 0 ? ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file) : "—"
     }
 
     func showToast(_ text: String) {
@@ -158,6 +282,8 @@ final class AppModel {
             items = items.filter { $0.deletedAt == nil && $0.lastOpenedAt != nil }
         case .trash:
             items = items.filter { $0.deletedAt != nil }
+        case .folder(let id):
+            items = items.filter { $0.deletedAt == nil && $0.folderID == id }
         }
         let q = listQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         if !q.isEmpty {
@@ -173,7 +299,7 @@ final class AppModel {
             items.sort { ($0.deletedAt ?? .distantPast) > ($1.deletedAt ?? .distantPast) }
         case .recent:
             items.sort { ($0.lastOpenedAt ?? .distantPast) > ($1.lastOpenedAt ?? .distantPast) }
-        case .all:
+        case .all, .folder:
             if sort == .opened {
                 items.sort { ($0.lastOpenedAt ?? .distantPast, $0.createdAt) > ($1.lastOpenedAt ?? .distantPast, $1.createdAt) }
             } else {
@@ -198,6 +324,21 @@ final class AppModel {
         renameTarget = nil
     }
 
+    /// Asks first (§ user request: deleting needs a confirmation dialog).
+    func requestMoveToTrash(_ ids: Set<UUID>) {
+        guard !ids.isEmpty else { return }
+        let title: String
+        if ids.count == 1, let id = ids.first, let m = library.minute(id) {
+            title = "将「\(m.title)」移到回收站？"
+        } else {
+            title = "将 \(ids.count) 个妙记移到回收站？"
+        }
+        confirmRequest = ConfirmRequest(title: title, message: "移到回收站后 30 天内可以恢复，之后会被彻底删除。原始媒体文件不会被删除。",
+                                        confirmTitle: "移到回收站") { [weak self] in
+            self?.moveToTrash(ids)
+        }
+    }
+
     func moveToTrash(_ ids: Set<UUID>) {
         guard !ids.isEmpty else { return }
         if let d = detail, ids.contains(d.minute.id) { backToList() }
@@ -215,11 +356,13 @@ final class AppModel {
 
     func deleteForever(_ ids: Set<UUID>) {
         guard !ids.isEmpty else { return }
-        let ok = Alerts.confirm(ids.count == 1 ? "彻底删除这个妙记？" : "彻底删除 \(ids.count) 个妙记？",
-                                "删除后无法恢复。原始音视频文件不会被删除。", ok: "彻底删除", destructive: true)
-        guard ok else { return }
-        library.deletePermanently(ids)
-        selection.subtract(ids)
+        confirmRequest = ConfirmRequest(title: ids.count == 1 ? "彻底删除这个妙记？" : "彻底删除 \(ids.count) 个妙记？",
+                                        message: "删除后无法恢复。原始媒体文件不会被删除。",
+                                        confirmTitle: "彻底删除") { [weak self] in
+            guard let self else { return }
+            self.library.deletePermanently(ids)
+            self.selection.subtract(ids)
+        }
     }
 
     func revealMedia(_ id: UUID) {
@@ -316,13 +459,14 @@ final class AppModel {
 
     private func runImport(_ pairs: [FilePairing.Pair]) async {
         guard !pairs.isEmpty else { return }
+        let targetFolder = currentFolderID
         isImporting = true
         defer { isImporting = false }
         var created: [(Minute, Transcript?)] = []
         var failures: [String] = []
         for pair in pairs {
             do {
-                created.append(try await createMinute(media: pair.media, subtitle: pair.subtitle))
+                created.append(try await createMinute(media: pair.media, subtitle: pair.subtitle, folderID: targetFolder))
             } catch {
                 failures.append("\(pair.media.lastPathComponent)：\(error.localizedDescription)")
             }
@@ -348,7 +492,7 @@ final class AppModel {
         var errorDescription: String? { message }
     }
 
-    private func createMinute(media: URL, subtitle: URL?) async throws -> (Minute, Transcript?) {
+    private func createMinute(media: URL, subtitle: URL?, folderID: UUID?) async throws -> (Minute, Transcript?) {
         let access = ScopedAccess(url: media)
         defer { access.stop() }
         guard let bookmark = Bookmarks.make(for: media) else {
@@ -366,6 +510,8 @@ final class AppModel {
         let createdAt = FilePairing.dateFromFileName(baseName, fallback: now) ?? now
         var minute = Minute(title: title, createdAt: createdAt, duration: info.duration, mediaBookmark: bookmark,
                             mediaPath: media.path, mediaFileName: media.lastPathComponent, isAudioOnly: !info.hasVideo)
+        minute.folderID = folderID
+        minute.mediaSize = Library.fileSize(of: media)
         library.save(minute)
 
         var transcript: Transcript?
@@ -421,7 +567,7 @@ final class AppModel {
 
     private func handleKey(_ event: NSEvent) -> Bool {
         guard let window = event.window, window === mainWindow else { return false }
-        if window.attachedSheet != nil || showImportDialog { return false }
+        if window.attachedSheet != nil || showImportDialog || isDialogOpen { return false }
         let editing = KeyMonitor.isEditingText(in: window)
         let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.function, .numericPad, .capsLock])
         let code = event.keyCode
@@ -450,7 +596,7 @@ final class AppModel {
         }
 
         if code == 51, mods == .command, !editing, !selection.isEmpty, section != .trash {
-            moveToTrash(selection)
+            requestMoveToTrash(selection)
             return true
         }
         return false

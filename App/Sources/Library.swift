@@ -8,6 +8,7 @@ import Observation
 @Observable
 final class Library {
     private(set) var minutes: [Minute] = []
+    private(set) var folders: [Folder] = []
     private(set) var isLoading = true
     private(set) var thumbnails: [UUID: NSImage] = [:]
     /// Bumped when the full-text search index gains entries.
@@ -70,7 +71,94 @@ final class Library {
             if let data, let img = NSImage(data: data) { thumbs[m.id] = img }
         }
         thumbnails = thumbs
+        folders = Self.readFolders(url: foldersURL)
         isLoading = false
+        backfillMediaSizes()
+    }
+
+    // MARK: Folders
+
+    private var foldersURL: URL { root.deletingLastPathComponent().appendingPathComponent("folders.json") }
+
+    nonisolated static func readFolders(url: URL) -> [Folder] {
+        guard let data = try? Data(contentsOf: url) else { return [] }
+        return (try? decoder().decode([Folder].self, from: data)) ?? []
+    }
+
+    private func saveFolders() {
+        write(folders, to: foldersURL)
+    }
+
+    func folder(_ id: UUID) -> Folder? { folders.first { $0.id == id } }
+
+    @discardableResult
+    func createFolder(named name: String) -> Folder {
+        let f = Folder(name: name)
+        folders.append(f)
+        saveFolders()
+        return f
+    }
+
+    func renameFolder(_ id: UUID, to name: String) {
+        guard let i = folders.firstIndex(where: { $0.id == id }) else { return }
+        folders[i].name = name
+        saveFolders()
+    }
+
+    /// Removes the folder; its minutes stay in the library, just unfiled.
+    func deleteFolder(_ id: UUID) {
+        folders.removeAll { $0.id == id }
+        saveFolders()
+        for m in minutes where m.folderID == id {
+            update(m.id) { $0.folderID = nil }
+        }
+    }
+
+    func move(_ ids: Set<UUID>, toFolder folderID: UUID?) {
+        for id in ids { update(id) { $0.folderID = folderID } }
+    }
+
+    // MARK: Stats
+
+    struct Stats {
+        var count = 0
+        var duration: Double = 0
+        var bytes: Int64 = 0
+    }
+
+    /// Count, total duration and total media size of minutes that are not in the trash.
+    func stats(inFolder folderID: UUID? = nil) -> Stats {
+        var s = Stats()
+        for m in minutes where m.deletedAt == nil && (folderID == nil || m.folderID == folderID) {
+            s.count += 1
+            s.duration += m.duration
+            s.bytes += m.mediaSize ?? 0
+        }
+        return s
+    }
+
+    nonisolated static func fileSize(of url: URL) -> Int64? {
+        if let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize { return Int64(size) }
+        return nil
+    }
+
+    /// Minutes imported before sizes were recorded get their media size measured once.
+    private func backfillMediaSizes() {
+        let missing = minutes.filter { $0.mediaSize == nil }.map { ($0.id, $0.mediaBookmark) }
+        guard !missing.isEmpty else { return }
+        Task {
+            let sizes = await Task.detached(priority: .utility) { () -> [UUID: Int64] in
+                var out: [UUID: Int64] = [:]
+                for (id, bookmark) in missing {
+                    guard let resolved = Bookmarks.resolve(bookmark) else { continue }
+                    let access = ScopedAccess(url: resolved.url)
+                    if let size = Library.fileSize(of: resolved.url) { out[id] = size }
+                    access.stop()
+                }
+                return out
+            }.value
+            for (id, size) in sizes { update(id) { $0.mediaSize = size } }
+        }
     }
 
     /// Reads every minute and purges trash older than 30 days.

@@ -157,6 +157,10 @@ struct Minute: Codable, Identifiable, Hashable {
     var deletedAt: Date?
     /// Resume position for the next open.
     var lastPlaybackPosition: Double
+    /// User folder this minute is filed under (it is still listed under "全部").
+    var folderID: UUID?
+    /// Size of the media file in bytes, when known.
+    var mediaSize: Int64?
 
     var hasTranscript: Bool { srtFileName != nil }
 
@@ -178,11 +182,14 @@ struct Minute: Codable, Identifiable, Hashable {
         self.hasSummary = false
         self.deletedAt = nil
         self.lastPlaybackPosition = 0
+        self.folderID = nil
+        self.mediaSize = nil
     }
 
     enum CodingKeys: String, CodingKey {
         case id, title, createdAt, lastOpenedAt, duration, mediaBookmark, mediaPath, mediaFileName, isAudioOnly
         case srtBookmark, srtFileName, cueCount, speakerCount, hasSummary, deletedAt, lastPlaybackPosition
+        case folderID, mediaSize
     }
 
     init(from decoder: Decoder) throws {
@@ -203,6 +210,21 @@ struct Minute: Codable, Identifiable, Hashable {
         hasSummary = try c.decodeIfPresent(Bool.self, forKey: .hasSummary) ?? false
         deletedAt = try c.decodeIfPresent(Date.self, forKey: .deletedAt)
         lastPlaybackPosition = try c.decodeIfPresent(Double.self, forKey: .lastPlaybackPosition) ?? 0
+        folderID = try c.decodeIfPresent(UUID.self, forKey: .folderID)
+        mediaSize = try c.decodeIfPresent(Int64.self, forKey: .mediaSize)
+    }
+}
+
+/// A user folder in the sidebar. Minutes reference it by id.
+struct Folder: Codable, Identifiable, Hashable {
+    let id: UUID
+    var name: String
+    var createdAt: Date
+
+    init(id: UUID = UUID(), name: String, createdAt: Date = Date()) {
+        self.id = id
+        self.name = name
+        self.createdAt = createdAt
     }
 }
 

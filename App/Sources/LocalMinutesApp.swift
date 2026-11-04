@@ -22,6 +22,10 @@ struct LocalMinutesApp: App {
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        MainActor.assumeIsolated { AppIconStore.shared.applyToDock() }
+    }
+
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 }
 
@@ -34,11 +38,33 @@ struct RootView: View {
             switch app.route {
             case .list:
                 ListPage(app: app)
+                    .transition(.opacity)
             case .detail:
                 if let detail = app.detail {
                     DetailView(model: detail, app: app)
                         .id(detail.minute.id)
+                        .transition(.asymmetric(
+                            insertion: .opacity.combined(with: .scale(scale: 0.985)).combined(with: .offset(y: 6)),
+                            removal: .opacity))
                 }
+            }
+
+            if let request = app.confirmRequest {
+                ConfirmDialogView(request: request) { confirmed in
+                    app.confirmRequest = nil
+                    if confirmed { request.onConfirm() }
+                }
+                .id(request.id)
+                .zIndex(10)
+            }
+            if let ids = app.moveTarget {
+                MoveToFolderDialog(app: app, ids: ids)
+                    .zIndex(10)
+            }
+            if let folderID = app.folderInfoTarget {
+                FolderInfoDialog(app: app, folderID: folderID)
+                    .id(folderID)
+                    .zIndex(10)
             }
         }
         .overlay(alignment: .top) {

@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct MinuteRow: View {
@@ -30,6 +31,12 @@ struct MinuteRow: View {
                     HStack(spacing: 8) {
                         Text(TimeFormat.durationCN(minute.duration))
                         if !minute.hasTranscript { Text("· 无字幕") }
+                        if app.currentFolderID == nil, let fid = minute.folderID, let folder = app.library.folder(fid) {
+                            HStack(spacing: 3) {
+                                Image(systemName: "folder").font(.system(size: 10))
+                                Text(folder.name).lineLimit(1)
+                            }
+                        }
                     }
                     .font(.system(size: 12))
                     .foregroundStyle(Color.textTertiary)
@@ -49,7 +56,7 @@ struct MinuteRow: View {
                 }
                 .frame(width: 130, alignment: .leading)
             } else {
-                Text(TimeFormat.dateOnly(app.sort == .opened && app.section == .all || app.section == .recent
+                Text(TimeFormat.dateOnly(app.section == .recent || app.sort == .opened
                                          ? (minute.lastOpenedAt ?? minute.createdAt) : minute.createdAt))
                     .frame(width: 170, alignment: .leading)
                 actionsMenu.frame(width: 48, alignment: .leading)
@@ -65,6 +72,11 @@ struct MinuteRow: View {
         )
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
+        .onDrag {
+            // Drag to a sidebar folder; dragging a selected row carries the whole selection.
+            let ids = isSelected && app.selection.count > 1 ? Array(app.selection) : [minute.id]
+            return NSItemProvider(object: ids.map(\.uuidString).joined(separator: "\n") as NSString)
+        }
         .onTapGesture {
             if isTrash {
                 if isSelected { app.selection.remove(minute.id) } else { app.selection.insert(minute.id) }
@@ -92,21 +104,30 @@ struct MinuteRow: View {
     @ViewBuilder
     private var menuItems: some View {
         Button("重命名") { app.beginRename(minute.id) }
+        Button("移动到文件夹…") { app.moveTarget = [minute.id] }
         Button("在 Finder 中显示媒体") { app.revealMedia(minute.id) }
         Button("重新导入 SRT…") { app.reimportSRT(minute.id) }
         Divider()
-        Button("移到回收站") { app.moveToTrash([minute.id]) }
+        Button("移到回收站") { app.requestMoveToTrash([minute.id]) }
     }
 
+    /// Opens on click (not hover) with the flip-down animation.
     private var actionsMenu: some View {
-        MoreMenuButton(help: "操作") {
-            [
+        MoreMenuButton(help: "操作", openOnHover: false) {
+            var items: [DropdownItem] = [
                 .button("重命名", icon: "pencil") { app.beginRename(minute.id) },
-                .button("在 Finder 中显示媒体", icon: "folder") { app.revealMedia(minute.id) },
+                .button("移动到文件夹…", icon: "folder") { app.moveTarget = [minute.id] },
+            ]
+            if minute.folderID != nil {
+                items.append(.button("移出文件夹", icon: "folder.badge.minus") { app.moveMinutes([minute.id], toFolder: nil) })
+            }
+            items += [
+                .button("在 Finder 中显示媒体", icon: "magnifyingglass") { app.revealMedia(minute.id) },
                 .button("重新导入 SRT…", icon: "captions.bubble") { app.reimportSRT(minute.id) },
                 .divider,
-                .button("移到回收站", icon: "trash", destructive: true) { app.moveToTrash([minute.id]) },
+                .button("移到回收站", icon: "trash", destructive: true) { app.requestMoveToTrash([minute.id]) },
             ]
+            return items
         }
     }
 }

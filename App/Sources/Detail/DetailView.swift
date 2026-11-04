@@ -215,7 +215,7 @@ private struct DetailTopBar: View {
                     .button("更换媒体文件…", icon: "film") { model.relocateMedia() },
                     .button("在 Finder 中显示", icon: "folder") { model.revealMedia() },
                     .divider,
-                    .button("移到回收站", icon: "trash", destructive: true) { app.moveToTrash([model.minute.id]) },
+                    .button("移到回收站", icon: "trash", destructive: true) { app.requestMoveToTrash([model.minute.id]) },
                 ]
             }) { open in
                 Image(systemName: "ellipsis")
@@ -228,7 +228,8 @@ private struct DetailTopBar: View {
             .buttonStyle(.plain)
             .help("更多")
         }
-        .padding(.leading, app.isWindowFullScreen ? 16 : 80)
+        // The window buttons sit in their own strip above this bar, so it can start at the edge.
+        .padding(.leading, 12)
         .padding(.trailing, 16)
     }
 

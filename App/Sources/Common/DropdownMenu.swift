@@ -1,8 +1,9 @@
 import AppKit
+import Observation
 import SwiftUI
 
-// Feishu-style dropdown menus: a borderless child panel hosting a rounded white card,
-// used instead of the native NSMenu look for every "▾" / "···" button.
+// Feishu-style dropdown menus: a borderless child panel hosting a rounded white card that
+// flips down from its button. Most open on hover; some (list rows, folders, form fields) on click.
 
 struct DropdownItem: Identifiable {
     enum Kind {
@@ -38,6 +39,12 @@ enum DropdownStyle { case light, dark }
 enum DropdownPlacement { case below, above }
 enum DropdownAlignment { case leading, center, trailing }
 
+@MainActor
+@Observable
+final class DropdownVisibility {
+    var shown = false
+}
+
 // MARK: - Card
 
 struct DropdownCard: View {
@@ -69,6 +76,28 @@ struct DropdownCard: View {
         .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(background))
         .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(border, lineWidth: 0.5))
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+}
+
+/// Card plus shadow room and the flip-down transform.
+struct DropdownPanelContent: View {
+    static let shadowPadding: CGFloat = 16
+
+    let card: DropdownCard
+    let placement: DropdownPlacement
+    let visibility: DropdownVisibility
+
+    var body: some View {
+        let shown = visibility.shown
+        card
+            .shadow(color: .black.opacity(card.style == .dark ? 0.35 : 0.14), radius: 12, x: 0, y: 4)
+            .rotation3DEffect(.degrees(shown ? 0 : (placement == .below ? -78 : 78)),
+                              axis: (x: 1, y: 0, z: 0),
+                              anchor: placement == .below ? .top : .bottom,
+                              perspective: 0.55)
+            .scaleEffect(shown ? 1 : 0.97, anchor: placement == .below ? .top : .bottom)
+            .opacity(shown ? 1 : 0)
+            .padding(Self.shadowPadding)
     }
 }
 
@@ -126,6 +155,7 @@ private struct DropdownRow: View {
                 RoundedRectangle(cornerRadius: 6, style: .continuous)
                     .fill(hovering && !item.isDisabled ? (dark ? Color.white.opacity(0.12) : Color.searchFill) : Color.clear)
             )
+            .animation(.easeOut(duration: 0.1), value: hovering)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -158,8 +188,30 @@ final class DropdownPanel: NSPanel {
     override var canBecomeMain: Bool { false }
 }
 
-final class DropdownHostingView: NSHostingView<DropdownCard> {
+/// Accepts the first click and reports the pointer entering / leaving the menu.
+final class DropdownHostingView: NSHostingView<DropdownPanelContent> {
+    var onPointerInside: ((Bool) -> Void)?
+    private var area: NSTrackingArea?
+
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let area { removeTrackingArea(area) }
+        let a = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self, userInfo: nil)
+        addTrackingArea(a)
+        area = a
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        super.mouseEntered(with: event)
+        onPointerInside?(true)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        onPointerInside?(false)
+    }
 }
 
 @MainActor
@@ -167,74 +219,109 @@ final class DropdownPresenter {
     static let shared = DropdownPresenter()
 
     private var panel: DropdownPanel?
+    private var visibility: DropdownVisibility?
     private weak var anchor: NSView?
+    private var hoverMode = false
+    private var pointerInAnchor = false
+    private var pointerInPanel = false
+    private var closeCheck: Task<Void, Never>?
     private var monitors: [Any] = []
     private var observers: [NSObjectProtocol] = []
     private var onClose: (() -> Void)?
 
+    func isShowing(from anchor: NSView?) -> Bool {
+        panel != nil && anchor != nil && self.anchor === anchor
+    }
+
     func show(items: [DropdownItem], from anchor: NSView, placement: DropdownPlacement, alignment: DropdownAlignment,
-              style: DropdownStyle, minWidth: CGFloat, onClose: @escaping () -> Void) {
-        close()
+              style: DropdownStyle, minWidth: CGFloat, hoverMode: Bool, onClose: @escaping () -> Void) {
+        close(animated: false)
         guard let window = anchor.window else {
             onClose()
             return
         }
         let anchorRect = window.convertToScreen(anchor.convert(anchor.bounds, to: nil))
-        let host = DropdownHostingView(rootView: DropdownCard(items: items, style: style, minWidth: minWidth) { _ in })
-        host.rootView = DropdownCard(items: items, style: style, minWidth: minWidth) { [weak self] item in
+        let visibility = DropdownVisibility()
+        let card = DropdownCard(items: items, style: style, minWidth: minWidth) { [weak self] item in
             if case .toggle = item.kind {
                 item.action()
             } else {
-                self?.close()
+                self?.close(animated: true)
                 item.action()
             }
         }
+        let host = DropdownHostingView(rootView: DropdownPanelContent(card: card, placement: placement, visibility: visibility))
+        host.onPointerInside = { [weak self] inside in
+            MainActor.assumeIsolated { self?.pointer(inPanel: inside) }
+        }
         let size = host.fittingSize
+        let pad = DropdownPanelContent.shadowPadding
+        let cardWidth = size.width - pad * 2
+        let cardHeight = size.height - pad * 2
         let gap: CGFloat = 6
 
-        var x: CGFloat
+        var cardX: CGFloat
         switch alignment {
-        case .leading: x = anchorRect.minX
-        case .trailing: x = anchorRect.maxX - size.width
-        case .center: x = anchorRect.midX - size.width / 2
+        case .leading: cardX = anchorRect.minX
+        case .trailing: cardX = anchorRect.maxX - cardWidth
+        case .center: cardX = anchorRect.midX - cardWidth / 2
         }
-        var y = placement == .below ? anchorRect.minY - gap - size.height : anchorRect.maxY + gap
+        var cardY = placement == .below ? anchorRect.minY - gap - cardHeight : anchorRect.maxY + gap
+        var effectivePlacement = placement
         if let screen = window.screen ?? NSScreen.main {
             let visible = screen.visibleFrame
-            x = min(max(x, visible.minX + 4), visible.maxX - size.width - 4)
-            if placement == .below && y < visible.minY + 4 { y = anchorRect.maxY + gap }
-            if placement == .above && y + size.height > visible.maxY - 4 { y = anchorRect.minY - gap - size.height }
+            cardX = min(max(cardX, visible.minX + 4), visible.maxX - cardWidth - 4)
+            if placement == .below && cardY < visible.minY + 4 {
+                cardY = anchorRect.maxY + gap
+                effectivePlacement = .above
+            } else if placement == .above && cardY + cardHeight > visible.maxY - 4 {
+                cardY = anchorRect.minY - gap - cardHeight
+                effectivePlacement = .below
+            }
+        }
+        if effectivePlacement != placement {
+            host.rootView = DropdownPanelContent(card: card, placement: effectivePlacement, visibility: visibility)
         }
 
-        let panel = DropdownPanel(contentRect: NSRect(x: x, y: y, width: size.width, height: size.height),
-                                  styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        let frame = NSRect(x: cardX - pad, y: cardY - pad, width: size.width, height: size.height)
+        let panel = DropdownPanel(contentRect: frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         panel.isFloatingPanel = true
         panel.level = .popUpMenu
         panel.backgroundColor = .clear
         panel.isOpaque = false
-        panel.hasShadow = true
+        panel.hasShadow = false
         panel.hidesOnDeactivate = true
         panel.becomesKeyOnlyIfNeeded = true
         panel.contentView = host
         window.addChildWindow(panel, ordered: .above)
         panel.orderFront(nil)
-        panel.invalidateShadow()
 
         self.panel = panel
+        self.visibility = visibility
         self.anchor = anchor
+        self.hoverMode = hoverMode
+        self.pointerInAnchor = hoverMode
+        self.pointerInPanel = false
         self.onClose = onClose
+
+        // Flip down on the next runloop turn so the initial (folded) state is rendered first.
+        DispatchQueue.main.async {
+            MainActor.assumeIsolated {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.82)) { visibility.shown = true }
+            }
+        }
 
         let clicks = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
             let swallow = MainActor.assumeIsolated { () -> Bool in
                 guard let self, let panel = self.panel else { return false }
                 if event.window === panel { return false }
-                // A click on the button that opened the menu just closes it (no reopen).
                 var onAnchor = false
                 if let anchor = self.anchor, event.window === anchor.window {
-                    let p = anchor.convert(event.locationInWindow, from: nil)
-                    onAnchor = anchor.bounds.contains(p)
+                    onAnchor = anchor.bounds.contains(anchor.convert(event.locationInWindow, from: nil))
                 }
-                self.close()
+                // Hover menus stay open when their button is clicked; click menus toggle closed.
+                if onAnchor && self.hoverMode { return false }
+                self.close(animated: true)
                 return onAnchor
             }
             return swallow ? nil : event
@@ -242,7 +329,7 @@ final class DropdownPresenter {
         let keys = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             let handled = MainActor.assumeIsolated { () -> Bool in
                 guard let self, self.panel != nil, event.keyCode == 53 else { return false }
-                self.close()
+                self.close(animated: true)
                 return true
             }
             return handled ? nil : event
@@ -253,21 +340,58 @@ final class DropdownPresenter {
                      NSWindow.didEnterFullScreenNotification, NSWindow.didExitFullScreenNotification] {
             let object: AnyObject? = name == NSApplication.didResignActiveNotification ? nil : window
             observers.append(center.addObserver(forName: name, object: object, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.close() }
+                MainActor.assumeIsolated { self?.close(animated: false) }
             })
         }
     }
 
-    func close() {
+    func pointer(inAnchor inside: Bool, anchor: NSView?) {
+        guard hoverMode, panel != nil, anchor === self.anchor else { return }
+        pointerInAnchor = inside
+        scheduleHoverCheck()
+    }
+
+    private func pointer(inPanel inside: Bool) {
+        guard panel != nil else { return }
+        pointerInPanel = inside
+        if hoverMode { scheduleHoverCheck() }
+    }
+
+    /// Hover menus close shortly after the pointer has left both the button and the card.
+    private func scheduleHoverCheck() {
+        closeCheck?.cancel()
+        guard !pointerInAnchor && !pointerInPanel else { return }
+        closeCheck = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 220_000_000)
+            guard let self, !Task.isCancelled, !self.pointerInAnchor, !self.pointerInPanel else { return }
+            self.close(animated: true)
+        }
+    }
+
+    func close(animated: Bool) {
+        closeCheck?.cancel()
+        closeCheck = nil
         for m in monitors { NSEvent.removeMonitor(m) }
         monitors.removeAll()
         for o in observers { NotificationCenter.default.removeObserver(o) }
         observers.removeAll()
         if let panel {
-            panel.parent?.removeChildWindow(panel)
-            panel.orderOut(nil)
+            let finish = {
+                panel.parent?.removeChildWindow(panel)
+                panel.orderOut(nil)
+            }
+            if animated, let visibility {
+                panel.ignoresMouseEvents = true
+                withAnimation(.easeIn(duration: 0.12)) { visibility.shown = false }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.13) {
+                    MainActor.assumeIsolated { finish() }
+                }
+            } else {
+                finish()
+            }
         }
         panel = nil
+        visibility = nil
         anchor = nil
         let callback = onClose
         onClose = nil
@@ -305,12 +429,15 @@ struct DropdownButton<Label: View>: View {
     var alignment: DropdownAlignment = .leading
     var style: DropdownStyle = .light
     var minWidth: CGFloat = 160
+    /// Open when the pointer rests on the button (Feishu behaviour); click always opens too.
+    var openOnHover = true
     var onOpenChange: ((Bool) -> Void)?
     let items: () -> [DropdownItem]
     @ViewBuilder let label: (Bool) -> Label
 
     @State private var box = DropdownAnchorBox()
     @State private var isOpen = false
+    @State private var hoverTask: Task<Void, Never>?
 
     var body: some View {
         Button {
@@ -319,14 +446,26 @@ struct DropdownButton<Label: View>: View {
             label(isOpen)
         }
         .background(DropdownAnchor(box: box))
+        .onHover { inside in
+            guard openOnHover else { return }
+            hoverTask?.cancel()
+            DropdownPresenter.shared.pointer(inAnchor: inside, anchor: box.view)
+            if inside && !isOpen {
+                hoverTask = Task {
+                    try? await Task.sleep(nanoseconds: 120_000_000)
+                    if !Task.isCancelled { open() }
+                }
+            }
+        }
     }
 
     private func open() {
         guard let view = box.view else { return }
+        if DropdownPresenter.shared.isShowing(from: view) { return }
         isOpen = true
         onOpenChange?(true)
         DropdownPresenter.shared.show(items: items(), from: view, placement: placement, alignment: alignment,
-                                      style: style, minWidth: minWidth) {
+                                      style: style, minWidth: minWidth, hoverMode: openOnHover) {
             isOpen = false
             onOpenChange?(false)
         }
@@ -338,10 +477,11 @@ struct MoreMenuButton: View {
     var alignment: DropdownAlignment = .trailing
     var size: CGFloat = 28
     var help: String = "更多"
+    var openOnHover = true
     let items: () -> [DropdownItem]
 
     var body: some View {
-        DropdownButton(alignment: alignment, items: items) { open in
+        DropdownButton(alignment: alignment, openOnHover: openOnHover, items: items) { open in
             Image(systemName: "ellipsis")
                 .font(.system(size: 15, weight: .medium))
                 .foregroundStyle(Color.textSecondary)

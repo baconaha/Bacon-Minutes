@@ -6,7 +6,9 @@ struct TranscriptPanel: View {
     @FocusState private var searchFocused: Bool
 
     var body: some View {
-        if model.transcript == nil {
+        if !model.isLoaded {
+            Color.clear
+        } else if model.transcript == nil {
             EmptyTranscriptView { model.chooseAndImportSRT() }
         } else {
             VStack(spacing: 0) {

@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// ⌘, window (§7.1).
 struct SettingsView: View {
@@ -22,6 +23,7 @@ struct SettingsView: View {
 private struct GeneralSettingsView: View {
     @Bindable var settings: AppSettings
     @State private var suffixText = ""
+    @State private var iconError: String?
 
     var body: some View {
         Form {
@@ -60,6 +62,27 @@ private struct GeneralSettingsView: View {
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }
+            Section {
+                HStack(spacing: 16) {
+                    AppLogo(size: 56)
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 8) {
+                            Button("上传图片…") { chooseIcon() }
+                            Button("恢复默认") { AppIconStore.shared.resetToDefault() }
+                                .disabled(AppIconStore.shared.customArtwork == nil)
+                        }
+                        if let iconError {
+                            Text(iconError).font(.system(size: 11)).foregroundStyle(Color.errorText)
+                        }
+                    }
+                }
+            } header: {
+                Text("应用图标")
+            } footer: {
+                Text("同时用于 Dock 和应用内各处的图标。建议上传 1024×1024 的正方形图片，四周透明的部分会被自动裁掉。Dock 图标在应用运行时生效。")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
             Section("存储") {
                 Text("回收站中的妙记保留 30 天后自动彻底删除。媒体文件不会被复制，删除妙记也不会删除原始音视频。")
                     .font(.system(size: 12))
@@ -68,6 +91,20 @@ private struct GeneralSettingsView: View {
         }
         .formStyle(.grouped)
         .onAppear { suffixText = settings.general.filenameSuffixes.joined(separator: ", ") }
+    }
+
+    private func chooseIcon() {
+        let panel = NSOpenPanel()
+        panel.message = "选择一张图片作为应用图标"
+        panel.allowedContentTypes = [.png, .jpeg, .heic, .tiff, .icns]
+        panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try AppIconStore.shared.setCustom(from: url)
+            iconError = nil
+        } catch {
+            iconError = error.localizedDescription
+        }
     }
 
     private func saveSuffixes() {
@@ -112,7 +149,7 @@ struct APISettingsForm: View {
             Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 12, verticalSpacing: 12) {
                 GridRow {
                     label("服务商预设")
-                    DropdownButton(minWidth: 260, items: {
+                    DropdownButton(minWidth: 260, openOnHover: false, items: {
                         ProviderPreset.all.map { p in
                             DropdownItem.button(p.name, selected: p.id == settings.llm.presetID) { presetBinding.wrappedValue = p.id }
                         }
@@ -167,7 +204,7 @@ struct APISettingsForm: View {
                                       text: $settings.llm.model)
                                 .textFieldStyle(.roundedBorder)
                             if !models.isEmpty {
-                                DropdownButton(alignment: .trailing, minWidth: 220, items: {
+                                DropdownButton(alignment: .trailing, minWidth: 220, openOnHover: false, items: {
                                     models.map { m in
                                         DropdownItem.button(m, selected: m == settings.llm.model) { settings.llm.model = m }
                                     }

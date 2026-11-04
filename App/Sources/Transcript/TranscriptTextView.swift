@@ -112,6 +112,8 @@ final class TranscriptTextController: NSObject {
         document = model.document
         let clip = scrollView.contentView
         let savedOrigin = clip.bounds.origin
+        let firstFill = (textView.textStorage?.length ?? 0) == 0 && document != nil
+        if firstFill { scrollView.alphaValue = 0 }
         textView.textStorage?.setAttributedString(document?.attributed ?? NSAttributedString())
         scrollView.syncDocumentWidth()
         if let lm = textView.layoutManager, let tc = textView.textContainer { lm.ensureLayout(for: tc) }
@@ -127,6 +129,12 @@ final class TranscriptTextController: NSObject {
         // Highlight state lives in the observable model; update it outside the SwiftUI view update.
         Task { @MainActor [weak self] in
             self?.model?.refreshHighlight()
+        }
+        if firstFill {
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.2
+                self.scrollView.animator().alphaValue = 1
+            }
         }
     }
 

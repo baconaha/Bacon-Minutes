@@ -7,15 +7,12 @@ struct AppLogo: View {
     var size: CGFloat = 32
 
     var body: some View {
-        RoundedRectangle(cornerRadius: size * 0.25, style: .continuous)
-            .fill(LinearGradient(colors: [Color(nsColor: NSColor(hex: 0x3370FF)), Color(nsColor: NSColor(hex: 0x7B9DFF))],
-                                 startPoint: .topLeading, endPoint: .bottomTrailing))
+        Image(nsImage: AppIconStore.shared.artwork)
+            .resizable()
+            .interpolation(.high)
+            .aspectRatio(contentMode: .fill)
             .frame(width: size, height: size)
-            .overlay(
-                Image(systemName: "waveform")
-                    .font(.system(size: size * 0.5, weight: .semibold))
-                    .foregroundStyle(.white)
-            )
+            .clipShape(RoundedRectangle(cornerRadius: size * 0.225, style: .continuous))
     }
 }
 

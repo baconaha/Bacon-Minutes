@@ -18,7 +18,9 @@ struct SummaryPanel: View {
 
     @ViewBuilder
     private var content: some View {
-        if case .generating(let text) = model.summaryState {
+        if !model.isLoaded {
+            Color.clear
+        } else if case .generating(let text) = model.summaryState {
             GeneratingView(text: text) { model.cancelGeneration() }
         } else if let summary = model.summary {
             SummaryContent(model: model, summary: summary)
