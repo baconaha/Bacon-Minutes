@@ -1,0 +1,43 @@
+name: build
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  macos:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.4.app || true
+      - name: Core unit tests
+        run: swift test
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate project
+        run: xcodegen generate
+      - name: Build app (Release, universal, ad-hoc signed)
+        run: |
+          set -o pipefail
+          xcodebuild -project LocalMinutes.xcodeproj -scheme LocalMinutes -configuration Release \
+            -destination 'generic/platform=macOS' -derivedDataPath build \
+            ARCHS="arm64 x86_64" ONLY_ACTIVE_ARCH=NO \
+            CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="-" DEVELOPMENT_TEAM="" \
+            build 2>&1 | tee build.log | grep -E "error:|warning: .*deprecated|BUILD (SUCCEEDED|FAILED)" || true
+          exit ${PIPESTATUS[0]}
+      - name: Show errors
+        if: failure()
+        run: grep -n "error:" build.log | head -200 || true
+      - name: Make DMG
+        run: |
+          APP=build/Build/Products/Release/LocalMinutes.app
+          codesign --verify --verbose "$APP"
+          mkdir -p dist/stage
+          cp -R "$APP" dist/stage/
+          ln -s /Applications dist/stage/Applications
+          hdiutil create -volname LocalMinutes -srcfolder dist/stage -ov -format UDZO dist/LocalMinutes.dmg
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LocalMinutes-dmg
+          path: dist/LocalMinutes.dmg
