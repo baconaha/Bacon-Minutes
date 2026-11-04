@@ -30,3 +30,12 @@ final class LocalizationTests: XCTestCase {
         XCTAssertEqual(TimeFormat.roughDuration(207), "3 分 27 秒")
     }
 }
+
+final class ModelListTests: XCTestCase {
+    func testTextModelsDropsNonChatModels() {
+        let ids = ["gpt-4.1", "o3-mini", "text-embedding-3-large", "tts-1-hd", "whisper-1", "gpt-realtime",
+                   "omni-moderation-latest", "sora-2", "gpt-image-1", "o4-mini-deep-research", "claude-opus-5-5"]
+        XCTAssertEqual(LLMClient.textModels(ids), ["gpt-4.1", "o3-mini", "claude-opus-5-5"])
+        XCTAssertEqual(LLMClient.textModels(["text-embedding-3-small"]), ["text-embedding-3-small"])
+    }
+}

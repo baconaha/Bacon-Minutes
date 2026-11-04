@@ -94,7 +94,7 @@
 "松开以导入（SRT 将导入到当前妙记）" = "Drop to import (an SRT goes into this recording)";
 "返回列表（⌘[）" = "Back to List (⌘[)";
 "标题" = "Title";
-"双击修改标题" = "Double-click to rename";
+"点击修改标题" = "Click to rename";
 "导出" = "Export";
 "重新导入 SRT…" = "Re-import SRT…";
 "更换媒体文件…" = "Replace Media File…";
@@ -238,8 +238,6 @@
 "重新生成" = "Regenerate";
 "复制为 Markdown" = "Copy as Markdown";
 "文字记录已变更，纪要可能过期 ·" = "The transcript has changed; this summary may be out of date ·";
-"有帮助" = "Helpful";
-"没帮助" = "Not helpful";
 "会议纪要" = "Meeting Notes";
 "待办" = "Action Items";
 "本场会议无待办内容" = "No action items in this meeting";

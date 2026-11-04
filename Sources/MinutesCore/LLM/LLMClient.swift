@@ -130,7 +130,19 @@ final class LLMClient {
             }
         }
         var seen = Set<String>()
-        return ids.filter { seen.insert($0).inserted }.sorted()
+        return Self.textModels(ids.filter { seen.insert($0).inserted }.sorted())
+    }
+
+    /// Drops models that cannot write a summary (embeddings, speech, images, moderation …),
+    /// so the picker only lists usable ones. Returns the input unchanged if nothing would be left.
+    static func textModels(_ ids: [String]) -> [String] {
+        let excluded = ["embed", "tts", "whisper", "transcribe", "moderation", "dall-e", "sora", "image",
+                        "realtime", "audio", "deep-research", "computer-use", "davinci", "babbage", "rerank"]
+        let kept = ids.filter { id in
+            let lower = id.lowercased()
+            return !excluded.contains { lower.contains($0) }
+        }
+        return kept.isEmpty ? ids : kept
     }
 
     // MARK: Request building

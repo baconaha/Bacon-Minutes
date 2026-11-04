@@ -524,17 +524,6 @@ final class DetailModel {
         summaryState = .idle
     }
 
-    func setFeedback(_ value: Int, chapters: Bool) {
-        guard var s = summary else { return }
-        if chapters {
-            s.chaptersFeedback = s.chaptersFeedback == value ? nil : value
-        } else {
-            s.feedback = s.feedback == value ? nil : value
-        }
-        summary = s
-        library.saveSummary(s, id: minute.id)
-    }
-
     func copySummaryMarkdown() {
         guard let s = summary else { return }
         let pb = NSPasteboard.general

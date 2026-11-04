@@ -571,6 +571,8 @@ final class AppModel {
             switch code {
             case 53: // Esc
                 if d.isVideoFullscreen { d.setFullscreen(false); return true }
+                // Leave Esc to a text field being edited (e.g. the title, which it restores).
+                if editing && !d.searchFieldFocused { return false }
                 if !d.searchQuery.isEmpty { d.clearSearch(); return true }
                 return false
             case 36, 76: // Return

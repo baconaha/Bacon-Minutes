@@ -177,9 +177,12 @@ struct IconButtonStyle: ButtonStyle {
     var foreground: Color = .textSecondary
     /// Hover background; pass `.card` on the gray sidebar, where `.rowHover` is barely visible.
     var hoverFill: Color = .rowHover
+    /// Shows the pointing hand while hovered.
+    var pointingHand = false
 
     func makeBody(configuration: Configuration) -> some View {
-        IconBody(configuration: configuration, size: size, foreground: foreground, hoverFill: hoverFill)
+        IconBody(configuration: configuration, size: size, foreground: foreground, hoverFill: hoverFill,
+                 pointingHand: pointingHand)
     }
 
     private struct IconBody: View {
@@ -187,6 +190,7 @@ struct IconButtonStyle: ButtonStyle {
         let size: CGFloat
         let foreground: Color
         let hoverFill: Color
+        let pointingHand: Bool
         @State private var hovering = false
 
         var body: some View {
@@ -198,7 +202,16 @@ struct IconButtonStyle: ButtonStyle {
                 .animation(.easeOut(duration: 0.12), value: hovering)
                 .opacity(configuration.isPressed ? 0.7 : 1)
                 .contentShape(Rectangle())
-                .onHover { hovering = $0 }
+                .onContinuousHover { phase in
+                    switch phase {
+                    case .active:
+                        if !hovering { hovering = true }
+                        if pointingHand { NSCursor.pointingHand.set() }
+                    case .ended:
+                        hovering = false
+                        if pointingHand { NSCursor.arrow.set() }
+                    }
+                }
         }
     }
 }

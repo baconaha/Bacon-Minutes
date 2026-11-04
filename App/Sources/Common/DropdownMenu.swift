@@ -56,7 +56,18 @@ struct DropdownCard: View {
     private var background: Color { style == .dark ? Color(white: 0.11, opacity: 0.96) : Color.card }
     private var border: Color { style == .dark ? Color.white.opacity(0.08) : Color.divider }
 
-    var body: some View {
+    /// Taller lists (e.g. 100+ fetched models) scroll inside a card of this height.
+    static let maxHeight: CGFloat = 360
+
+    /// Row 34 + divider 9 + card padding 8, matching the layout below.
+    private var contentHeight: CGFloat {
+        items.reduce(8) { sum, item in
+            if case .divider = item.kind { return sum + 9 }
+            return sum + 34
+        }
+    }
+
+    private var rows: some View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(items) { item in
                 if case .divider = item.kind {
@@ -67,12 +78,34 @@ struct DropdownCard: View {
                         .padding(.vertical, 4)
                 } else {
                     DropdownRow(item: item, style: style) { select(item) }
+                        .id(item.id)
                 }
             }
         }
         .padding(4)
         .frame(minWidth: minWidth, alignment: .leading)
-        .fixedSize()
+    }
+
+    var body: some View {
+        Group {
+            if contentHeight > Self.maxHeight {
+                ScrollViewReader { proxy in
+                    ScrollView(.vertical) {
+                        rows.fixedSize()
+                    }
+                    .scrollIndicators(.automatic)
+                    .frame(height: Self.maxHeight)
+                    .onAppear {
+                        if let selected = items.first(where: \.isSelected) {
+                            proxy.scrollTo(selected.id, anchor: .center)
+                        }
+                    }
+                }
+                .fixedSize(horizontal: true, vertical: false)
+            } else {
+                rows.fixedSize()
+            }
+        }
         .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(background))
         .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(border, lineWidth: 0.5))
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))

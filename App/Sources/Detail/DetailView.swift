@@ -154,40 +154,20 @@ private struct RightCard: View {
 private struct DetailTopBar: View {
     @Bindable var model: DetailModel
     let app: AppModel
-    @State private var editingTitle = false
-    @State private var titleDraft = ""
-    @FocusState private var titleFocused: Bool
 
     var body: some View {
         HStack(spacing: 12) {
             Button { app.backToList() } label: {
                 Image(systemName: "chevron.left").font(.system(size: 15, weight: .medium))
             }
-            .buttonStyle(IconButtonStyle(size: 30, foreground: .textPrimary))
+            .buttonStyle(IconButtonStyle(size: 30, foreground: .textPrimary, pointingHand: true))
             .help(L("返回列表（⌘[）"))
 
             AppLogo(size: 32)
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 8) {
-                    if editingTitle {
-                        TextField(L("标题"), text: $titleDraft)
-                            .textFieldStyle(.plain)
-                            .font(.system(size: 16, weight: .semibold))
-                            .focused($titleFocused)
-                            .frame(maxWidth: 420)
-                            .onSubmit { commitTitle() }
-                            .onExitCommand { editingTitle = false }
-                            .onChange(of: titleFocused) { if !titleFocused && editingTitle { commitTitle() } }
-                    } else {
-                        Text(model.minute.title)
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(Color.textPrimary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                            .onTapGesture(count: 2) { beginTitleEdit() }
-                            .help(L("双击修改标题"))
-                    }
+                    EditableTitle(title: model.minute.title) { model.renameTitle($0) }
                     ForEach(Array(model.tags.enumerated()), id: \.offset) { _, tag in
                         TagLabel(text: tag.0, warning: tag.1)
                     }
@@ -232,16 +212,168 @@ private struct DetailTopBar: View {
         .padding(.leading, 12)
         .padding(.trailing, 16)
     }
+}
 
-    private func beginTitleEdit() {
-        titleDraft = model.minute.title
-        editingTitle = true
-        titleFocused = true
+// MARK: - Editable title
+
+/// Title that edits in place, like a Google Docs title: I-beam on hover, a click puts the caret
+/// there, and Return or a click anywhere else saves. Esc restores the old title.
+private struct EditableTitle: View {
+    let title: String
+    let commit: (String) -> Void
+    @State private var draft = ""
+    @State private var editing = false
+    @State private var hovering = false
+
+    private static let font = NSFont.systemFont(ofSize: 16, weight: .semibold)
+    private static let maxWidth: CGFloat = 520
+
+    private var width: CGFloat {
+        let text = draft.isEmpty ? title : draft
+        let w = (text as NSString).size(withAttributes: [.font: Self.font]).width
+        return min(max(ceil(w) + 6, 40), Self.maxWidth)
     }
 
-    private func commitTitle() {
-        editingTitle = false
-        model.renameTitle(titleDraft)
+    var body: some View {
+        TitleTextField(text: $draft, font: Self.font,
+                       onFocus: { editing = true },
+                       onEnd: { cancelled in
+                           editing = false
+                           if cancelled {
+                               draft = title
+                           } else {
+                               let t = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+                               if t.isEmpty { draft = title } else { commit(t) }
+                           }
+                       })
+            .frame(width: width, height: 24)
+            .padding(.horizontal, 5)
+            .background(
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .strokeBorder(editing ? Color.brand : (hovering ? Color.divider : Color.clear), lineWidth: editing ? 1.5 : 1)
+            )
+            // Line the text up with the date row below while keeping room for the outline.
+            .padding(.leading, -5)
+            .onHover { hovering = $0 }
+            .onAppear { draft = title }
+            .onChange(of: title) { if !editing { draft = title } }
+            .help(editing ? "" : L("点击修改标题"))
+    }
+}
+
+private struct TitleTextField: NSViewRepresentable {
+    @Binding var text: String
+    let font: NSFont
+    let onFocus: () -> Void
+    let onEnd: (_ cancelled: Bool) -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
+
+    func makeNSView(context: Context) -> FocusReportingTextField {
+        let field = FocusReportingTextField()
+        field.isBordered = false
+        field.isBezeled = false
+        field.drawsBackground = false
+        field.focusRingType = .none
+        field.font = font
+        field.textColor = Palette.textPrimary
+        field.usesSingleLineMode = true
+        field.lineBreakMode = .byClipping
+        field.cell?.wraps = false
+        field.cell?.isScrollable = true
+        field.stringValue = text
+        field.delegate = context.coordinator
+        field.onFocus = { [weak coordinator = context.coordinator] in
+            MainActor.assumeIsolated { coordinator?.began() }
+        }
+        context.coordinator.field = field
+        return field
+    }
+
+    func updateNSView(_ field: FocusReportingTextField, context: Context) {
+        context.coordinator.parent = self
+        if field.currentEditor() == nil, field.stringValue != text {
+            field.stringValue = text
+        }
+    }
+
+    static func dismantleNSView(_ field: FocusReportingTextField, coordinator: Coordinator) {
+        coordinator.removeMonitor()
+    }
+
+    @MainActor
+    final class Coordinator: NSObject, NSTextFieldDelegate {
+        var parent: TitleTextField
+        weak var field: NSTextField?
+        private var active = false
+        private var monitor: Any?
+
+        init(parent: TitleTextField) {
+            self.parent = parent
+        }
+
+        func began() {
+            guard !active else { return }
+            active = true
+            parent.onFocus()
+            // A click anywhere outside the field ends editing and saves; the click still goes through.
+            monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
+                MainActor.assumeIsolated {
+                    guard let self, let field = self.field else { return }
+                    let inside = event.window === field.window
+                        && field.bounds.contains(field.convert(event.locationInWindow, from: nil))
+                    if !inside { self.finish(cancelled: false) }
+                }
+                return event
+            }
+        }
+
+        func finish(cancelled: Bool) {
+            guard active else { return }
+            active = false
+            removeMonitor()
+            if let field, field.currentEditor() != nil {
+                field.window?.makeFirstResponder(nil)
+            }
+            parent.onEnd(cancelled)
+        }
+
+        func removeMonitor() {
+            if let monitor { NSEvent.removeMonitor(monitor) }
+            monitor = nil
+        }
+
+        func controlTextDidChange(_ obj: Notification) {
+            guard let field = obj.object as? NSTextField else { return }
+            parent.text = field.stringValue
+        }
+
+        func controlTextDidEndEditing(_ obj: Notification) {
+            finish(cancelled: false)
+        }
+
+        func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+            if selector == #selector(NSResponder.cancelOperation(_:)) {
+                finish(cancelled: true)
+                return true
+            }
+            if selector == #selector(NSResponder.insertNewline(_:)) {
+                finish(cancelled: false)
+                return true
+            }
+            return false
+        }
+    }
+}
+
+/// Tells its owner when it takes focus (a click), before any typing.
+final class FocusReportingTextField: NSTextField {
+    var onFocus: (() -> Void)?
+
+    override func becomeFirstResponder() -> Bool {
+        let ok = super.becomeFirstResponder()
+        if ok { onFocus?() }
+        return ok
     }
 }
 

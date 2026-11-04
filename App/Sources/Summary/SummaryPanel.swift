@@ -209,22 +209,6 @@ private struct StaleBanner: View {
     }
 }
 
-private struct FeedbackButtons: View {
-    let value: Int?
-    let set: (Int) -> Void
-
-    var body: some View {
-        HStack(spacing: 4) {
-            Button { set(1) } label: { Image(systemName: value == 1 ? "hand.thumbsup.fill" : "hand.thumbsup") }
-                .buttonStyle(IconButtonStyle(size: 24, foreground: value == 1 ? .brand : .textTertiary))
-                .help(L("有帮助"))
-            Button { set(-1) } label: { Image(systemName: value == -1 ? "hand.thumbsdown.fill" : "hand.thumbsdown") }
-                .buttonStyle(IconButtonStyle(size: 24, foreground: value == -1 ? .brand : .textTertiary))
-                .help(L("没帮助"))
-        }
-    }
-}
-
 private struct CardTitle<Trailing: View>: View {
     let title: String
     @ViewBuilder var trailing: Trailing
@@ -247,10 +231,7 @@ private struct MeetingCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            CardTitle(title: L("会议纪要")) {
-                Rectangle().fill(Color.divider).frame(width: 1, height: 14)
-                FeedbackButtons(value: summary.feedback) { model.setFeedback($0, chapters: false) }
-            }
+            CardTitle(title: L("会议纪要")) { EmptyView() }
 
             Collapsible(maxHeight: 8 * 24) {
                 VStack(alignment: .leading, spacing: 10) {
@@ -375,8 +356,6 @@ private struct ChapterCard: View {
                     expanded = []
                 }
                 .buttonStyle(TextLinkButtonStyle(size: 12))
-                Rectangle().fill(Color.divider).frame(width: 1, height: 14)
-                FeedbackButtons(value: summary.chaptersFeedback) { model.setFeedback($0, chapters: true) }
             }
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(Array(summary.chapters.enumerated()), id: \.offset) { i, chapter in
@@ -404,6 +383,11 @@ private struct ChapterRow: View {
     let toggle: () -> Void
     let jump: () -> Void
     @State private var hovering = false
+    /// Height of the summary at full length vs. as shown; "展开" only appears when text is cut.
+    @State private var fullHeight: CGFloat = 0
+    @State private var shownHeight: CGFloat = 0
+
+    private var truncated: Bool { fullHeight > shownHeight + 1 }
 
     private static let timeWidth: CGFloat = 62
 
@@ -427,14 +411,18 @@ private struct ChapterRow: View {
                 }
                 .buttonStyle(.plain)
                 .help(L("跳到本章节并播放"))
-                Text(chapter.summary)
-                    .font(.system(size: 14))
-                    .foregroundStyle(Color.textSecondary)
-                    .lineSpacing(3)
-                    .lineLimit(expanded ? nil : 2)
-                    .truncationMode(.tail)
-                    .textSelection(.enabled)
-                if hovering || expanded {
+                summaryText
+                    .background(HeightReader { shownHeight = $0 })
+                    .background(
+                        // Same text at full length, never shown, to tell whether two lines cut it off.
+                        bodyText
+                            .lineSpacing(3)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .hidden()
+                            .background(HeightReader { fullHeight = $0 })
+                    )
+                // Always laid out when needed (not only on hover), so hovering never moves text.
+                if expanded || truncated {
                     Button(expanded ? L("收起") : L("展开"), action: toggle)
                         .buttonStyle(TextLinkButtonStyle(size: 12))
                 }
@@ -456,5 +444,42 @@ private struct ChapterRow: View {
         }
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
+    }
+
+    private var bodyText: Text {
+        Text(chapter.summary)
+            .font(.system(size: 14))
+            .foregroundStyle(Color.textSecondary)
+    }
+
+    /// Selectable text on macOS ignores `lineLimit` when drawing, which let the third line spill
+    /// under the "展开" button; collapsed text is therefore not selectable.
+    @ViewBuilder
+    private var summaryText: some View {
+        if expanded {
+            bodyText
+                .lineSpacing(3)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+        } else {
+            bodyText
+                .lineSpacing(3)
+                .lineLimit(2)
+                .truncationMode(.tail)
+                .clipped()
+        }
+    }
+}
+
+/// Reports a view's height whenever it changes.
+private struct HeightReader: View {
+    let onChange: (CGFloat) -> Void
+
+    var body: some View {
+        GeometryReader { g in
+            Color.clear
+                .onAppear { onChange(g.size.height) }
+                .onChange(of: g.size.height) { _, h in onChange(h) }
+        }
     }
 }

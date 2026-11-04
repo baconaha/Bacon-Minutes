@@ -94,7 +94,7 @@
 "松开以导入（SRT 将导入到当前妙记）" = "Thả để nhập (tệp SRT sẽ được thêm vào bản ghi này)";
 "返回列表（⌘[）" = "Quay lại danh sách (⌘[)";
 "标题" = "Tiêu đề";
-"双击修改标题" = "Nhấp đúp để đổi tiêu đề";
+"点击修改标题" = "Nhấp để đổi tiêu đề";
 "导出" = "Xuất";
 "重新导入 SRT…" = "Nhập lại SRT…";
 "更换媒体文件…" = "Thay tệp phương tiện…";
@@ -238,8 +238,6 @@
 "重新生成" = "Tạo lại";
 "复制为 Markdown" = "Sao chép dạng Markdown";
 "文字记录已变更，纪要可能过期 ·" = "Bản chép lời đã thay đổi, tóm tắt có thể đã cũ ·";
-"有帮助" = "Hữu ích";
-"没帮助" = "Không hữu ích";
 "会议纪要" = "Biên bản";
 "待办" = "Việc cần làm";
 "本场会议无待办内容" = "Cuộc họp này không có việc cần làm";

@@ -94,7 +94,7 @@
 "松开以导入（SRT 将导入到当前妙记）" = "Suelta para importar (un SRT se añade a esta grabación)";
 "返回列表（⌘[）" = "Volver a la lista (⌘[)";
 "标题" = "Título";
-"双击修改标题" = "Doble clic para cambiar el título";
+"点击修改标题" = "Haz clic para cambiar el título";
 "导出" = "Exportar";
 "重新导入 SRT…" = "Volver a importar SRT…";
 "更换媒体文件…" = "Reemplazar archivo multimedia…";
@@ -238,8 +238,6 @@
 "重新生成" = "Regenerar";
 "复制为 Markdown" = "Copiar como Markdown";
 "文字记录已变更，纪要可能过期 ·" = "La transcripción cambió; el resumen puede estar desactualizado ·";
-"有帮助" = "Útil";
-"没帮助" = "No útil";
 "会议纪要" = "Notas de la reunión";
 "待办" = "Tareas";
 "本场会议无待办内容" = "Esta reunión no tiene tareas";
