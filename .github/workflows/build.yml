@@ -40,3 +40,30 @@ jobs:
         with:
           name: LocalMinutes-dmg
           path: dist/LocalMinutes.dmg
+
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: windows
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: windows/package-lock.json
+      - name: Install
+        run: npm ci
+      - name: Unit tests
+        run: npm test
+      - name: Build installer (x64 + arm64, unsigned)
+        run: npm run dist
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LocalMinutes-windows
+          path: |
+            windows/release/*.exe
+          if-no-files-found: error

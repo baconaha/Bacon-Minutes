@@ -4,6 +4,8 @@ A local macOS app for managing meeting/lecture recordings: each item ("妙记") 
 
 > **Status:** this was written in a Linux container with no Swift toolchain, so **it has never been compiled**. All 35 Swift files pass a Swift grammar parser (tree-sitter), and I reviewed the code by hand for type and concurrency errors. Expect a handful of compiler errors on the first build. `.github/workflows/build.yml` builds it on a GitHub macOS runner if you push the repo.
 
+> **Windows:** an Electron port with the same features lives in [`windows/`](windows/README.md). CI builds a Windows installer (artifact `LocalMinutes-windows`) on every push.
+
 ## Build
 
 Requirements: macOS 14+, Xcode 16 or newer, [XcodeGen](https://github.com/yonaskolb/XcodeGen).

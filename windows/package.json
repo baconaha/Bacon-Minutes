@@ -1,0 +1,58 @@
+{
+  "name": "localminutes",
+  "productName": "本地妙记",
+  "version": "1.0.0",
+  "description": "Local recordings + SRT transcripts with AI summaries",
+  "author": "LocalMinutes",
+  "license": "UNLICENSED",
+  "private": true,
+  "type": "module",
+  "main": "dist/main.cjs",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "start": "npm run build && electron .",
+    "test": "node --test \"test/*.test.js\"",
+    "dist": "npm run build && electron-builder --win nsis --publish never"
+  },
+  "devDependencies": {
+    "@preact/signals": "^2.11.3",
+    "electron": "44.9.3",
+    "electron-builder": "26.18.0",
+    "esbuild": "0.28.2",
+    "preact": "10.29.8"
+  },
+  "build": {
+    "appId": "com.localminutes.app",
+    "productName": "本地妙记",
+    "executableName": "LocalMinutes",
+    "artifactName": "LocalMinutes-Setup-${version}-${arch}.${ext}",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "本地妙记",
+      "uninstallDisplayName": "本地妙记"
+    }
+  }
+}
