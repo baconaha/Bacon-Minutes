@@ -6,7 +6,9 @@ on:
 
 jobs:
   macos:
-    runs-on: macos-15
+    # Intel runner: the Apple Silicon queue was turning jobs away for lack of capacity.
+    # The build is still universal (arm64 + x86_64).
+    runs-on: macos-15-intel
     steps:
       - uses: actions/checkout@v4
       - name: Select Xcode
