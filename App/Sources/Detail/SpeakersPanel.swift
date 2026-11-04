@@ -38,7 +38,7 @@ private struct SpeakersList: View {
                                percent: model.percentages[s.id] ?? 0,
                                intervals: model.speakerIntervals[s.id] ?? [])
                 }
-            } else {
+            } else if model.isLoaded {
                 Text("导入 SRT 后显示发言人与发言时段")
                     .font(.system(size: 13))
                     .foregroundStyle(Color.textTertiary)
