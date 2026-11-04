@@ -15,6 +15,7 @@ struct TranscriptTextView: NSViewRepresentable {
 
     func updateNSView(_ nsView: NSScrollView, context: Context) {
         _ = model.documentVersion
+        _ = model.transcriptRevealed
         context.coordinator.syncDocument()
     }
 
@@ -107,13 +108,15 @@ final class TranscriptTextController: NSObject {
     // MARK: Document
 
     func syncDocument() {
-        guard let model, model.documentVersion != docVersion else { return }
+        guard let model, model.transcriptRevealed, model.documentVersion != docVersion else { return }
         docVersion = model.documentVersion
         document = model.document
         let clip = scrollView.contentView
         let savedOrigin = clip.bounds.origin
         let firstFill = (textView.textStorage?.length ?? 0) == 0 && document != nil
-        if firstFill { scrollView.alphaValue = 0 }
+        // Fade the text view, not the scroll view: SwiftUI owns the scroll view's opacity
+        // (the tab switch hides it), and setting it here fought with that.
+        if firstFill { textView.alphaValue = 0 }
         textView.textStorage?.setAttributedString(document?.attributed ?? NSAttributedString())
         scrollView.syncDocumentWidth()
         if let lm = textView.layoutManager, let tc = textView.textContainer { lm.ensureLayout(for: tc) }
@@ -127,13 +130,19 @@ final class TranscriptTextController: NSObject {
             scrollView.reflectScrolledClipView(clip)
         }
         // Highlight state lives in the observable model; update it outside the SwiftUI view update.
+        // The playhead may have been placed (resume position) before the text was filled, so
+        // bring its cue into view now.
         Task { @MainActor [weak self] in
-            self?.model?.refreshHighlight()
+            guard let self, let model = self.model else { return }
+            model.refreshHighlight()
+            if firstFill, model.isFollowing, let cue = model.currentCueID {
+                self.scrollToCue(cue, animated: false)
+            }
         }
         if firstFill {
             NSAnimationContext.runAnimationGroup { ctx in
                 ctx.duration = 0.2
-                self.scrollView.animator().alphaValue = 1
+                self.textView.animator().alphaValue = 1
             }
         }
     }

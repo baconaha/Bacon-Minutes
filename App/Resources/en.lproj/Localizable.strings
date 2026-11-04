@@ -187,7 +187,7 @@
 "删除妙记不会删除原始媒体文件。" = "Deleting a recording never deletes the original media file.";
 "跟随系统（{0}）" = "System ({0})";
 "选择一张图片作为应用图标" = "Choose an image for the app icon";
-"智能纪要使用你自己的模型服务生成。API Key 保存在系统钥匙串中。" = "AI summaries are generated with your own model service. The API key is stored in the system Keychain.";
+"智能纪要使用你自己的模型服务生成。API Key 只保存在这台 Mac 上。" = "AI summaries are generated with your own model service. The API key stays on this Mac.";
 "服务商预设" = "Provider";
 "自定义" = "Custom";
 "协议" = "Protocol";
@@ -219,7 +219,7 @@
 "本地服务可留空" = "Optional for local services";
 "本地服务通常不需要 Key" = "Local services usually don't need a key";
 "尚未填写" = "Not set";
-"已保存到钥匙串 · 末 4 位 {0}" = "Saved to Keychain · ends in {0}";
+"已保存 · 末 4 位 {0}" = "Saved · ends in {0}";
 "服务端没有返回模型，请手动填写" = "The server returned no models. Enter one manually.";
 "获取到 {0} 个模型，点击 ⌄ 选择" = "Found {0} models. Click ⌄ to choose.";
 "获取失败（可手动填写）：{0}" = "Couldn't fetch (you can enter it manually): {0}";

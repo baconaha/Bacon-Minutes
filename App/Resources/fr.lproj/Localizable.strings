@@ -187,7 +187,7 @@
 "删除妙记不会删除原始媒体文件。" = "Supprimer un enregistrement ne supprime jamais le fichier multimédia d'origine.";
 "跟随系统（{0}）" = "Système ({0})";
 "选择一张图片作为应用图标" = "Choisissez une image pour l'icône de l'app";
-"智能纪要使用你自己的模型服务生成。API Key 保存在系统钥匙串中。" = "Les résumés IA sont générés avec votre propre service de modèles. La clé API est stockée dans le trousseau du système.";
+"智能纪要使用你自己的模型服务生成。API Key 只保存在这台 Mac 上。" = "Les résumés IA sont générés avec votre propre service de modèles. La clé API reste sur ce Mac.";
 "服务商预设" = "Fournisseur";
 "自定义" = "Personnalisé";
 "协议" = "Protocole";
@@ -219,7 +219,7 @@
 "本地服务可留空" = "Facultatif pour les services locaux";
 "本地服务通常不需要 Key" = "Les services locaux n'ont généralement pas besoin de clé";
 "尚未填写" = "Non renseigné";
-"已保存到钥匙串 · 末 4 位 {0}" = "Enregistrée dans le trousseau · se termine par {0}";
+"已保存 · 末 4 位 {0}" = "Enregistrée · se termine par {0}";
 "服务端没有返回模型，请手动填写" = "Le serveur n'a renvoyé aucun modèle. Saisissez-le manuellement";
 "获取到 {0} 个模型，点击 ⌄ 选择" = "{0} modèles trouvés. Cliquez sur ⌄ pour choisir";
 "获取失败（可手动填写）：{0}" = "Échec de la récupération (saisie manuelle possible) : {0}";

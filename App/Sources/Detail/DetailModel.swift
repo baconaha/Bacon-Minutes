@@ -70,8 +70,11 @@ final class DetailModel {
     @ObservationIgnored private var lastCharOffset: Int?
 
     var isVideoFullscreen = false
-    /// False until `start()` has loaded the transcript; empty states stay hidden until then.
+    /// False until `prepare()` has loaded the transcript; empty states stay hidden until then.
     private(set) var isLoaded = false
+    /// The transcript text view fills (a full TextKit layout) only after the page transition.
+    private(set) var transcriptRevealed = false
+    @ObservationIgnored private var closed = false
 
     @ObservationIgnored private var generationTask: Task<Void, Never>?
     @ObservationIgnored private var autosaveTask: Task<Void, Never>?
@@ -84,12 +87,20 @@ final class DetailModel {
 
     // MARK: Lifecycle
 
-    func start() {
+    /// Loads transcript and summary before the page is shown, so it appears with its content in
+    /// place instead of popping in mid-transition.
+    func prepare() {
         transcript = library.loadTranscript(minute.id)
         summary = library.loadSummary(minute.id)
         rebuildDerived()
-        withAnimation(.easeOut(duration: 0.18)) { isLoaded = true }
+        isLoaded = true
         rightTab = .transcript
+    }
+
+    /// Media, playback and the transcript layout; called once the page transition has finished.
+    func start() {
+        guard !closed else { return }
+        transcriptRevealed = true
         player.onTick = { [weak self] t in self?.handleTick(t) }
         player.onSeekFinished = { [weak self] t in self?.refreshHighlight(at: t) }
         Task { await loadMedia() }
@@ -103,6 +114,7 @@ final class DetailModel {
     }
 
     func close() {
+        closed = true
         persistPosition()
         autosaveTask?.cancel()
         generationTask?.cancel()

@@ -20,7 +20,7 @@ xcodegen generate
 open BaconMinutes.xcodeproj
 ```
 
-Then press ⌘R. The project is set to "Sign to Run Locally". If you pick your own team under *Signing & Capabilities*, the Keychain stops asking for access to the API key after every rebuild.
+Then press ⌘R. The project is set to "Sign to Run Locally". 
 
 `.github/workflows/build.yml` runs the checks below on a GitHub macOS runner and uploads a universal, ad-hoc signed `BaconMinutes.dmg`.
 
@@ -44,7 +44,9 @@ It fails when a key is missing from a language or a translation drops a `{0}` pl
 
 ## Upgrading from LocalMinutes
 
-The bundle identifier stays `com.localminutes.app`, because the sandbox container that holds the library and settings belongs to it. On first launch the app moves `Application Support/LocalMinutes` to `Application Support/BaconMinutes`, and moves saved API keys to the Keychain service `BaconMinutes.LLM`.
+The bundle identifier stays `com.localminutes.app`, because the sandbox container that holds the library and settings belongs to it. On first launch the app moves `Application Support/LocalMinutes` to `Application Support/BaconMinutes`.
+
+API keys are stored in `api-keys.json` (mode 600) inside the app's sandbox container, not in the Keychain: with an unsigned build, every rebuild made macOS ask for the login password to read them. Keys saved in the Keychain by older builds are moved over once, silently; if macOS will not hand one over without a prompt, enter it again in Settings.
 
 ## Layout
 

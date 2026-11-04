@@ -73,7 +73,7 @@ final class UserDefaultsCompatStore: CompatStore {
     }
 }
 
-/// Settings live in UserDefaults; API keys in the Keychain, one per provider preset.
+/// Settings live in UserDefaults; API keys in `SecretStore`, one per provider preset.
 @MainActor
 @Observable
 final class AppSettings {
@@ -93,7 +93,7 @@ final class AppSettings {
         storedGeneral = general ?? GeneralSettings()
         let config = llm ?? LLMConfig()
         storedLLM = config
-        storedAPIKey = Keychain.read(account: config.presetID) ?? ""
+        storedAPIKey = SecretStore.read(account: config.presetID) ?? ""
     }
 
     var general: GeneralSettings {
@@ -117,7 +117,7 @@ final class AppSettings {
                 UserDefaults.standard.set(data, forKey: Self.llmKey)
             }
             if presetChanged {
-                storedAPIKey = Keychain.read(account: newValue.presetID) ?? ""
+                storedAPIKey = SecretStore.read(account: newValue.presetID) ?? ""
             }
         }
     }
@@ -127,7 +127,7 @@ final class AppSettings {
         set {
             guard newValue != storedAPIKey else { return }
             storedAPIKey = newValue
-            Keychain.write(newValue.trimmingCharacters(in: .whitespacesAndNewlines), account: storedLLM.presetID)
+            SecretStore.write(newValue.trimmingCharacters(in: .whitespacesAndNewlines), account: storedLLM.presetID)
         }
     }
 

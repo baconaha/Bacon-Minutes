@@ -186,7 +186,7 @@ struct APISettingsForm: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             if !embedded {
-                Text(L("智能纪要使用你自己的模型服务生成。API Key 保存在系统钥匙串中。"))
+                Text(L("智能纪要使用你自己的模型服务生成。API Key 只保存在这台 Mac 上。"))
                     .font(.system(size: 12))
                     .foregroundStyle(Color.textTertiary)
             }
@@ -413,7 +413,7 @@ struct APISettingsForm: View {
         if k.isEmpty {
             return (settings.currentPreset?.isLocal ?? false) ? L("本地服务通常不需要 Key") : L("尚未填写")
         }
-        return L("已保存到钥匙串 · 末 4 位 {0}", String(k.suffix(4)))
+        return L("已保存 · 末 4 位 {0}", String(k.suffix(4)))
     }
 
     private func fetchModels() {

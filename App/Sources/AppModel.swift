@@ -153,14 +153,16 @@ final class AppModel {
         m.lastOpenedAt = Date()
         library.save(m)
         let d = DetailModel(minute: m, app: self)
+        d.prepare()
         selection = []
         withAnimation(.easeOut(duration: 0.22)) {
             detail = d
             route = .detail(id)
         }
-        // Let the transition start before the transcript is parsed and laid out.
+        // Media and the transcript's text layout start once the page has settled, so the
+        // transition itself never stalls.
         Task {
-            try? await Task.sleep(nanoseconds: 70_000_000)
+            try? await Task.sleep(nanoseconds: 240_000_000)
             d.start()
         }
     }

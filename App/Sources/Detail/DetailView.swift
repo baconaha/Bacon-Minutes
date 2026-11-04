@@ -131,14 +131,16 @@ private struct RightCard: View {
             Rectangle().fill(Color.divider).frame(height: 1)
 
             ZStack {
-                SummaryPanel(model: model)
-                    .opacity(model.rightTab == .summary ? 1 : 0)
-                    .allowsHitTesting(model.rightTab == .summary)
-                    .zIndex(model.rightTab == .summary ? 1 : 0)
+                // The transcript stays alive (its text layout is expensive) and is only hidden.
                 TranscriptPanel(model: model)
                     .opacity(model.rightTab == .transcript ? 1 : 0)
                     .allowsHitTesting(model.rightTab == .transcript)
-                    .zIndex(model.rightTab == .transcript ? 1 : 0)
+                // The summary is built only while its tab is showing, after (so above) the
+                // transcript's AppKit views. Kept alive and hidden, it sometimes came back blank.
+                if model.rightTab == .summary {
+                    SummaryPanel(model: model)
+                        .background(Color.card)
+                }
             }
         }
         .background(

@@ -22,57 +22,85 @@ enum AppPaths {
     }()
 }
 
-// MARK: - Keychain
+// MARK: - API keys
 
-enum Keychain {
-    static let service = "BaconMinutes.LLM"
-    /// Service name used before the rename; keys found there are moved on first read.
-    private static let legacyService = "LocalMinutes.LLM"
+/// API keys, one per provider preset, in a private file inside the app's sandbox container.
+/// They used to live in the Keychain, where every new unsigned build made macOS ask for the login
+/// password; keys still there are moved over once, without any prompt.
+enum SecretStore {
+    private static var fileURL: URL { AppPaths.support.appendingPathComponent("api-keys.json") }
+    /// Accounts already looked up in the Keychain, so the lookup runs once each.
+    private static let migratedKey = "secrets.keychainChecked"
+    private static let lock = NSLock()
 
     static func read(account: String) -> String? {
-        if let value = read(account: account, service: service) { return value }
-        guard let old = read(account: account, service: legacyService) else { return nil }
-        write(old, account: account)
-        _ = SecItemDelete([
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: legacyService,
-            kSecAttrAccount as String: account,
-        ] as CFDictionary)
+        lock.lock()
+        defer { lock.unlock() }
+        var all = load()
+        if let value = all[account], !value.isEmpty { return value }
+        let defaults = UserDefaults.standard
+        var checked = Set(defaults.stringArray(forKey: migratedKey) ?? [])
+        guard !checked.contains(account) else { return nil }
+        checked.insert(account)
+        defaults.set(Array(checked), forKey: migratedKey)
+        guard let old = LegacyKeychain.take(account: account) else { return nil }
+        all[account] = old
+        save(all)
         return old
     }
 
-    private static func read(account: String, service: String) -> String? {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-        ]
-        var item: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &item)
-        guard status == errSecSuccess, let data = item as? Data else { return nil }
-        return String(data: data, encoding: .utf8)
+    static func write(_ value: String, account: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        var all = load()
+        all[account] = value.isEmpty ? nil : value
+        save(all)
     }
 
-    static func write(_ value: String, account: String) {
-        let base: [String: Any] = [
+    private static func load() -> [String: String] {
+        guard let data = try? Data(contentsOf: fileURL),
+              let dict = try? JSONDecoder().decode([String: String].self, from: data) else { return [:] }
+        return dict
+    }
+
+    private static func save(_ all: [String: String]) {
+        guard let data = try? JSONEncoder().encode(all) else { return }
+        do {
+            try data.write(to: fileURL, options: .atomic)
+            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
+        } catch {
+            NSLog("BaconMinutes: failed to save API keys: \(error)")
+        }
+    }
+}
+
+/// Reads (and then removes) keys saved by earlier builds, never showing a password dialog:
+/// if macOS would ask, the lookup just fails and the key has to be entered again.
+private enum LegacyKeychain {
+    private static let services = ["BaconMinutes.LLM", "LocalMinutes.LLM"]
+
+    static func take(account: String) -> String? {
+        var found: String?
+        for service in services {
+            var query = baseQuery(service: service, account: account)
+            query[kSecReturnData as String] = true
+            query[kSecMatchLimit as String] = kSecMatchLimitOne
+            var item: CFTypeRef?
+            guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess,
+                  let data = item as? Data, let value = String(data: data, encoding: .utf8) else { continue }
+            if found == nil, !value.isEmpty { found = value }
+            _ = SecItemDelete(baseQuery(service: service, account: account) as CFDictionary)
+        }
+        return found
+    }
+
+    private static func baseQuery(service: String, account: String) -> [String: Any] {
+        [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
+            kSecUseAuthenticationUI as String: kSecUseAuthenticationUIFail,
         ]
-        if value.isEmpty {
-            _ = SecItemDelete(base as CFDictionary)
-            return
-        }
-        let data = Data(value.utf8)
-        let update: [String: Any] = [kSecValueData as String: data]
-        let status = SecItemUpdate(base as CFDictionary, update as CFDictionary)
-        if status == errSecItemNotFound {
-            var add = base
-            add[kSecValueData as String] = data
-            _ = SecItemAdd(add as CFDictionary, nil)
-        }
     }
 }
 

@@ -187,7 +187,7 @@
 "删除妙记不会删除原始媒体文件。" = "Xóa bản ghi không xóa tệp phương tiện gốc.";
 "跟随系统（{0}）" = "Theo hệ thống ({0})";
 "选择一张图片作为应用图标" = "Chọn ảnh làm biểu tượng ứng dụng";
-"智能纪要使用你自己的模型服务生成。API Key 保存在系统钥匙串中。" = "Tóm tắt AI được tạo bằng dịch vụ mô hình của riêng bạn. API Key được lưu trong Chuỗi khóa của hệ thống.";
+"智能纪要使用你自己的模型服务生成。API Key 只保存在这台 Mac 上。" = "Tóm tắt AI được tạo bằng dịch vụ mô hình của riêng bạn. API Key chỉ được lưu trên máy Mac này.";
 "服务商预设" = "Nhà cung cấp";
 "自定义" = "Tùy chỉnh";
 "协议" = "Giao thức";
@@ -219,7 +219,7 @@
 "本地服务可留空" = "Dịch vụ cục bộ có thể để trống";
 "本地服务通常不需要 Key" = "Dịch vụ cục bộ thường không cần Key";
 "尚未填写" = "Chưa điền";
-"已保存到钥匙串 · 末 4 位 {0}" = "Đã lưu vào Chuỗi khóa · 4 ký tự cuối {0}";
+"已保存 · 末 4 位 {0}" = "Đã lưu · 4 ký tự cuối {0}";
 "服务端没有返回模型，请手动填写" = "Máy chủ không trả về mô hình nào, hãy nhập thủ công";
 "获取到 {0} 个模型，点击 ⌄ 选择" = "Đã lấy {0} mô hình, nhấp ⌄ để chọn";
 "获取失败（可手动填写）：{0}" = "Không lấy được (có thể nhập thủ công): {0}";

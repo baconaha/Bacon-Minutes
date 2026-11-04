@@ -76,7 +76,11 @@ struct PlayerArea: View {
     private var surface: some View {
         switch model.mediaState {
         case .loading:
-            ProgressView().controlSize(.small).tint(.white)
+            // No spinner: audio shows its cover at once; video stays black and the first frame
+            // fades in when ready (PlayerLayerView).
+            if model.minute.isAudioOnly {
+                AudioCover(title: model.minute.mediaFileName)
+            }
         case .missing:
             MissingMediaView(fileName: model.minute.mediaFileName) { model.relocateMedia() }
         case .ready:
@@ -145,13 +149,33 @@ struct VideoSurface: NSViewRepresentable {
 
 final class PlayerLayerView: NSView {
     let playerLayer = AVPlayerLayer()
+    private var readyObservation: NSKeyValueObservation?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
         layer?.backgroundColor = NSColor.black.cgColor
         playerLayer.videoGravity = .resizeAspect
+        // Hidden until a frame can be drawn, then faded in, so opening a minute shows black and
+        // then the picture rather than a flash or a spinner.
+        playerLayer.opacity = 0
         layer?.addSublayer(playerLayer)
+        readyObservation = playerLayer.observe(\.isReadyForDisplay, options: [.initial, .new]) { [weak self] layer, _ in
+            let ready = layer.isReadyForDisplay
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated { self?.showPicture(ready) }
+            }
+        }
+    }
+
+    private func showPicture(_ ready: Bool) {
+        let target: Float = ready ? 1 : 0
+        guard playerLayer.opacity != target else { return }
+        CATransaction.begin()
+        CATransaction.setAnimationDuration(ready ? 0.3 : 0)
+        CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut))
+        playerLayer.opacity = target
+        CATransaction.commit()
     }
 
     required init?(coder: NSCoder) {
