@@ -44,6 +44,21 @@ const check = (name, ok, detail = '') => results.push(`${ok ? 'PASS' : 'FAIL'} $
   check('new folder is the open section', (await page.textContent('.list-title-row h1')) === '物理课');
   await shot('02-empty-folder');
 
+  // a second folder: clicking anywhere else saves the name, like the title
+  await page.click('.sidebar-plus');
+  await page.waitForSelector('.folder-input');
+  await page.keyboard.type('化学课');
+  await page.mouse.click(700, 500);
+  await page.waitForTimeout(300);
+  const names = await page.$$eval('.folder-row .folder-name', (els) => els.map((e) => e.textContent));
+  check('click elsewhere saves a new folder name', names.includes('化学课') && !(await page.$('.folder-input')), JSON.stringify(names));
+  await page.mouse.move(700, 600);
+  await page.click('.folder-row:has-text("化学课")', { button: 'right' });
+  await page.click('.menu-item:has-text("删除文件夹")');
+  await page.waitForSelector('.flip-card');
+  await page.click('.btn-danger');
+  await page.waitForTimeout(400);
+
   // drag a row from 全部 onto the folder
   await page.click('.nav-item:has-text("全部")');
   await page.waitForTimeout(150);
