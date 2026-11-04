@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { timestamp, durationCN, createdDate } from '../../core/time.js';
+import { timestamp, duration, createdDate } from '../../core/time.js';
+import { L } from '../../core/i18n.js';
 import { Avatar, Tab, useContextMenu } from './ui.jsx';
 
 function Track({ model, intervals }) {
@@ -52,7 +53,7 @@ function SpeakerRow({ model, speaker, openContext }) {
   };
   return (
     <div class="speaker">
-      <div class="speaker-head" onContextMenu={(e) => openContext(e, [{ label: '重命名', onClick: begin }])}>
+      <div class="speaker-head" onContextMenu={(e) => openContext(e, [{ label: L('重命名'), onClick: begin }])}>
         <Avatar name={speaker.name} color={speaker.colorHex} />
         {editing ? (
           <input
@@ -71,7 +72,7 @@ function SpeakerRow({ model, speaker, openContext }) {
             }}
           />
         ) : (
-          <span class="speaker-name" title="点击重命名" onClick={begin}>
+          <span class="speaker-name" title={L('点击重命名')} onClick={begin}>
             {speaker.name}
           </span>
         )}
@@ -86,27 +87,27 @@ function FileInfo({ model }) {
   const m = model.minute.value;
   const tr = model.transcript.value;
   const rows = [
-    ['媒体文件', m.mediaFileName],
-    ['媒体路径', null],
-    ['时长', durationCN(model.totalDuration)],
-    ['SRT 文件', m.srtFileName || '未导入'],
-    ['字幕条数', String(tr?.cues.length ?? 0)],
-    ['发言人数', String(tr?.speakers.length ?? 0)],
-    ['创建时间', createdDate(m.createdAt)],
-    ['最近打开', m.lastOpenedAt ? createdDate(m.lastOpenedAt) : '—'],
+    ['media', L('媒体文件'), m.mediaFileName],
+    ['path', L('媒体路径'), null],
+    ['duration', L('时长'), duration(model.totalDuration)],
+    ['srt', L('SRT 文件'), m.srtFileName || L('未导入')],
+    ['cues', L('字幕条数'), String(tr?.cues.length ?? 0)],
+    ['speakers', L('发言人数'), String(tr?.speakers.length ?? 0)],
+    ['created', L('创建时间'), createdDate(m.createdAt)],
+    ['opened', L('最近打开'), m.lastOpenedAt ? createdDate(m.lastOpenedAt) : '—'],
   ];
   return (
     <div class="info-grid">
-      {rows.map(([k, v]) => [
-        <span class="k" key={k}>
+      {rows.map(([id, k, v]) => [
+        <span class="k" key={id}>
           {k}
         </span>,
-        k === '媒体路径' ? (
-          <button class="btn-link v" style={{ textAlign: 'left', wordBreak: 'break-all' }} onClick={() => model.revealMedia()} title="在资源管理器中显示" key={k + 'v'}>
+        id === 'path' ? (
+          <button class="btn-link v" style={{ textAlign: 'left', wordBreak: 'break-all' }} onClick={() => model.revealMedia()} title={L('在资源管理器中显示')} key={id + 'v'}>
             {m.mediaPath || '—'}
           </button>
         ) : (
-          <span class="v" key={k + 'v'}>
+          <span class="v" key={id + 'v'}>
             {v}
           </span>
         ),
@@ -123,8 +124,8 @@ export function LeftBottomPanel({ model }) {
   return (
     <div class="left-bottom">
       <div class="tabs small">
-        <Tab small title={`发言人 (${tr?.speakers.length ?? 0})`} selected={tab === 'speakers'} onClick={() => (model.leftTab.value = 'speakers')} />
-        <Tab small title="文件信息" selected={tab === 'fileInfo'} onClick={() => (model.leftTab.value = 'fileInfo')} />
+        <Tab small title={L('发言人 ({0})', tr?.speakers.length ?? 0)} selected={tab === 'speakers'} onClick={() => (model.leftTab.value = 'speakers')} />
+        <Tab small title={L('文件信息')} selected={tab === 'fileInfo'} onClick={() => (model.leftTab.value = 'fileInfo')} />
       </div>
       <div class="left-scroll">
         {tab === 'fileInfo' ? (
@@ -132,7 +133,7 @@ export function LeftBottomPanel({ model }) {
         ) : tr ? (
           tr.speakers.map((s) => <SpeakerRow key={s.id} model={model} speaker={s} openContext={openContext} />)
         ) : (
-          <div style={{ color: 'var(--text-3)' }}>导入 SRT 后显示发言人与发言时段</div>
+          <div style={{ color: 'var(--text-3)' }}>{L('导入 SRT 后显示发言人与发言时段')}</div>
         )}
       </div>
       {contextNode}

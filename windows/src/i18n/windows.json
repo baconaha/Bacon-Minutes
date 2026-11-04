@@ -1,0 +1,262 @@
+{
+ "API 设置": {
+  "en": "API Settings",
+  "ja": "API 設定",
+  "ko": "API 설정",
+  "es": "Ajustes de la API",
+  "vi": "Cài đặt API",
+  "fr": "Réglages de l'API",
+  "pt": "Configurações da API",
+  "ru": "Настройки API"
+ },
+ "SRT 字幕": {
+  "en": "SRT subtitles",
+  "ja": "SRT 字幕",
+  "ko": "SRT 자막",
+  "es": "Subtítulos SRT",
+  "vi": "Phụ đề SRT",
+  "fr": "Sous-titres SRT",
+  "pt": "Legendas SRT",
+  "ru": "Субтитры SRT"
+ },
+ "上一个（Shift+Enter）": {
+  "en": "Previous (Shift+Enter)",
+  "ja": "前へ（Shift+Enter）",
+  "ko": "이전 (Shift+Enter)",
+  "es": "Anterior (Mayús+Intro)",
+  "vi": "Trước (Shift+Enter)",
+  "fr": "Précédent (Maj+Entrée)",
+  "pt": "Anterior (Shift+Enter)",
+  "ru": "Предыдущее (Shift+Enter)"
+ },
+ "下一个（Enter）": {
+  "en": "Next (Enter)",
+  "ja": "次へ（Enter）",
+  "ko": "다음 (Enter)",
+  "es": "Siguiente (Intro)",
+  "vi": "Tiếp theo (Enter)",
+  "fr": "Suivant (Entrée)",
+  "pt": "Próximo (Enter)",
+  "ru": "Следующее (Enter)"
+ },
+ "全选": {
+  "en": "Select All",
+  "ja": "すべて選択",
+  "ko": "모두 선택",
+  "es": "Seleccionar todo",
+  "vi": "Chọn tất cả",
+  "fr": "Tout sélectionner",
+  "pt": "Selecionar tudo",
+  "ru": "Выделить всё"
+ },
+ "删除": {
+  "en": "Remove",
+  "ja": "削除",
+  "ko": "삭제",
+  "es": "Quitar",
+  "vi": "Xóa",
+  "fr": "Supprimer",
+  "pt": "Remover",
+  "ru": "Удалить"
+ },
+ "剪切": {
+  "en": "Cut",
+  "ja": "切り取り",
+  "ko": "잘라내기",
+  "es": "Cortar",
+  "vi": "Cắt",
+  "fr": "Couper",
+  "pt": "Recortar",
+  "ru": "Вырезать"
+ },
+ "复制": {
+  "en": "Copy",
+  "ja": "コピー",
+  "ko": "복사",
+  "es": "Copiar",
+  "vi": "Sao chép",
+  "fr": "Copier",
+  "pt": "Copiar",
+  "ru": "Копировать"
+ },
+ "粘贴": {
+  "en": "Paste",
+  "ja": "貼り付け",
+  "ko": "붙여넣기",
+  "es": "Pegar",
+  "vi": "Dán",
+  "fr": "Coller",
+  "pt": "Colar",
+  "ru": "Вставить"
+ },
+ "取消静音": {
+  "en": "Unmute",
+  "ja": "ミュート解除",
+  "ko": "음소거 해제",
+  "es": "Activar sonido",
+  "vi": "Bật tiếng",
+  "fr": "Réactiver le son",
+  "pt": "Ativar som",
+  "ru": "Включить звук"
+ },
+ "静音": {
+  "en": "Mute",
+  "ja": "ミュート",
+  "ko": "음소거",
+  "es": "Silenciar",
+  "vi": "Tắt tiếng",
+  "fr": "Couper le son",
+  "pt": "Silenciar",
+  "ru": "Выключить звук"
+ },
+ "同时用于任务栏、窗口和应用内各处的图标。建议上传 1024×1024 的正方形图片，四周透明的部分会被自动裁掉。": {
+  "en": "Used for the taskbar, the window and everywhere in the app. A square image works best, ideally 1024×1024; transparent margins are cropped automatically.",
+  "ja": "タスクバー、ウインドウ、アプリ内のすべてのアイコンに使われます。1024×1024 の正方形画像がおすすめです。周囲の透明な部分は自動的に切り取られます。",
+  "ko": "작업 표시줄, 창, 앱 안의 모든 아이콘에 사용됩니다. 1024×1024 정사각형 이미지를 권장하며, 가장자리의 투명한 부분은 자동으로 잘립니다.",
+  "es": "Se usa en la barra de tareas, la ventana y toda la app. Usa una imagen cuadrada, idealmente de 1024×1024; los márgenes transparentes se recortan automáticamente.",
+  "vi": "Dùng cho thanh tác vụ, cửa sổ và mọi nơi trong ứng dụng. Nên dùng ảnh vuông 1024×1024; phần viền trong suốt sẽ được tự động cắt bỏ.",
+  "fr": "Utilisée pour la barre des tâches, la fenêtre et partout dans l'app. Choisissez une image carrée, idéalement 1024×1024 ; les marges transparentes sont rognées automatiquement.",
+  "pt": "Usado na barra de tarefas, na janela e em todo o app. Use uma imagem quadrada, de preferência 1024×1024; as margens transparentes são cortadas automaticamente.",
+  "ru": "Используется на панели задач, в окне и во всём приложении. Лучше всего квадратное изображение 1024×1024; прозрачные поля обрезаются автоматически."
+ },
+ "图片": {
+  "en": "Images",
+  "ja": "画像",
+  "ko": "이미지",
+  "es": "Imágenes",
+  "vi": "Hình ảnh",
+  "fr": "Images",
+  "pt": "Imagens",
+  "ru": "Изображения"
+ },
+ "在资源管理器中显示": {
+  "en": "Show in Explorer",
+  "ja": "エクスプローラーで表示",
+  "ko": "탐색기에서 보기",
+  "es": "Mostrar en el Explorador",
+  "vi": "Hiển thị trong File Explorer",
+  "fr": "Afficher dans l'Explorateur",
+  "pt": "Mostrar no Explorador",
+  "ru": "Показать в проводнике"
+ },
+ "在资源管理器中显示媒体": {
+  "en": "Show Media in Explorer",
+  "ja": "メディアをエクスプローラーで表示",
+  "ko": "탐색기에서 미디어 보기",
+  "es": "Mostrar archivo en el Explorador",
+  "vi": "Hiển thị tệp trong File Explorer",
+  "fr": "Afficher le média dans l'Explorateur",
+  "pt": "Mostrar mídia no Explorador",
+  "ru": "Показать медиафайл в проводнике"
+ },
+ "已导出": {
+  "en": "Exported",
+  "ja": "書き出しました",
+  "ko": "내보냈습니다",
+  "es": "Exportado",
+  "vi": "Đã xuất",
+  "fr": "Exporté",
+  "pt": "Exportado",
+  "ru": "Экспортировано"
+ },
+ "找不到该妙记": {
+  "en": "Recording not found",
+  "ja": "記録が見つかりません",
+  "ko": "기록을 찾을 수 없습니다",
+  "es": "No se encuentra la grabación",
+  "vi": "Không tìm thấy bản ghi",
+  "fr": "Enregistrement introuvable",
+  "pt": "Gravação não encontrada",
+  "ru": "Запись не найдена"
+ },
+ "找不到该文件，可能已被移动或删除": {
+  "en": "File not found; it may have been moved or deleted",
+  "ja": "ファイルが見つかりません。移動または削除された可能性があります",
+  "ko": "파일을 찾을 수 없습니다. 이동되었거나 삭제되었을 수 있습니다",
+  "es": "No se encuentra el archivo; puede que se haya movido o eliminado",
+  "vi": "Không tìm thấy tệp, có thể đã bị di chuyển hoặc xóa",
+  "fr": "Fichier introuvable ; il a peut-être été déplacé ou supprimé",
+  "pt": "Arquivo não encontrado; pode ter sido movido ou excluído",
+  "ru": "Файл не найден: возможно, он перемещён или удалён"
+ },
+ "无法使用该文件": {
+  "en": "Can't use this file",
+  "ja": "このファイルは使えません",
+  "ko": "이 파일을 사용할 수 없습니다",
+  "es": "No se puede usar este archivo",
+  "vi": "Không dùng được tệp này",
+  "fr": "Impossible d'utiliser ce fichier",
+  "pt": "Não é possível usar este arquivo",
+  "ru": "Не удалось использовать этот файл"
+ },
+ "无法播放此文件（格式或编码不受支持）": {
+  "en": "Can't play this file (unsupported format or codec)",
+  "ja": "このファイルを再生できません（形式またはコーデックが非対応）",
+  "ko": "이 파일을 재생할 수 없습니다 (지원되지 않는 형식 또는 코덱)",
+  "es": "No se puede reproducir este archivo (formato o códec no compatible)",
+  "vi": "Không phát được tệp này (định dạng hoặc codec không được hỗ trợ)",
+  "fr": "Impossible de lire ce fichier (format ou codec non pris en charge)",
+  "pt": "Não é possível reproduzir este arquivo (formato ou codec incompatível)",
+  "ru": "Не удалось воспроизвести файл (формат или кодек не поддерживается)"
+ },
+ "无法读取该媒体文件（格式或编码不受支持）": {
+  "en": "Can't read this media file (unsupported format or codec)",
+  "ja": "このメディアファイルを読み込めません（形式またはコーデックが非対応）",
+  "ko": "이 미디어 파일을 읽을 수 없습니다 (지원되지 않는 형식 또는 코덱)",
+  "es": "No se puede leer este archivo multimedia (formato o códec no compatible)",
+  "vi": "Không đọc được tệp phương tiện này (định dạng hoặc codec không được hỗ trợ)",
+  "fr": "Impossible de lire ce fichier multimédia (format ou codec non pris en charge)",
+  "pt": "Não é possível ler este arquivo de mídia (formato ou codec incompatível)",
+  "ru": "Не удалось прочитать медиафайл (формат или кодек не поддерживается)"
+ },
+ "智能纪要使用你自己的模型服务生成。API Key 经系统加密后只保存在本机。": {
+  "en": "AI summaries are generated with your own model service. The API key is encrypted by Windows and stays on this PC.",
+  "ja": "AIサマリーはご自身のモデルサービスで生成されます。API Key は Windows で暗号化され、この PC にのみ保存されます。",
+  "ko": "AI 요약은 사용자의 모델 서비스로 생성됩니다. API Key는 Windows로 암호화되어 이 PC에만 저장됩니다.",
+  "es": "Los resúmenes IA se generan con tu propio servicio de modelos. La API Key se cifra con Windows y solo se guarda en este PC.",
+  "vi": "Tóm tắt AI được tạo bằng dịch vụ mô hình của riêng bạn. API Key được Windows mã hóa và chỉ lưu trên máy này.",
+  "fr": "Les résumés IA sont générés avec votre propre service de modèles. La clé API est chiffrée par Windows et reste sur ce PC.",
+  "pt": "Os resumos IA são gerados com o seu próprio serviço de modelos. A API Key é criptografada pelo Windows e fica só neste PC.",
+  "ru": "ИИ-сводки создаются через ваш собственный сервис моделей. API-ключ шифруется Windows и хранится только на этом ПК."
+ },
+ "读取媒体超时": {
+  "en": "Timed out reading the media",
+  "ja": "メディアの読み込みがタイムアウトしました",
+  "ko": "미디어를 읽는 중 시간이 초과되었습니다",
+  "es": "Se agotó el tiempo al leer el archivo multimedia",
+  "vi": "Đọc tệp phương tiện quá thời gian",
+  "fr": "Délai dépassé lors de la lecture du média",
+  "pt": "Tempo esgotado ao ler a mídia",
+  "ru": "Истекло время чтения медиафайла"
+ },
+ "返回列表（Ctrl+[）": {
+  "en": "Back to List (Ctrl+[)",
+  "ja": "一覧に戻る（Ctrl+[）",
+  "ko": "목록으로 돌아가기 (Ctrl+[)",
+  "es": "Volver a la lista (Ctrl+[)",
+  "vi": "Quay lại danh sách (Ctrl+[)",
+  "fr": "Retour à la liste (Ctrl+[)",
+  "pt": "Voltar à lista (Ctrl+[)",
+  "ru": "Назад к списку (Ctrl+[)"
+ },
+ "音视频": {
+  "en": "Audio and video",
+  "ja": "音声・動画",
+  "ko": "오디오 및 비디오",
+  "es": "Audio y vídeo",
+  "vi": "Âm thanh và video",
+  "fr": "Audio et vidéo",
+  "pt": "Áudio e vídeo",
+  "ru": "Аудио и видео"
+ },
+ "音视频与字幕": {
+  "en": "Audio, video and subtitles",
+  "ja": "音声・動画と字幕",
+  "ko": "오디오, 비디오 및 자막",
+  "es": "Audio, vídeo y subtítulos",
+  "vi": "Âm thanh, video và phụ đề",
+  "fr": "Audio, vidéo et sous-titres",
+  "pt": "Áudio, vídeo e legendas",
+  "ru": "Аудио, видео и субтитры"
+ }
+}

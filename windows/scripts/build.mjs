@@ -48,4 +48,5 @@ await Promise.all([
 cpSync(join(root, 'src/renderer/index.html'), join(dist, 'index.html'));
 cpSync(join(root, 'src/renderer/styles'), join(dist, 'styles'), { recursive: true });
 cpSync(join(root, 'build/icon.png'), join(dist, 'icon.png'));
+cpSync(join(root, 'build/logomark.png'), join(dist, 'logomark.png'));
 console.log('built to', dist);

@@ -1,6 +1,8 @@
 // §9.1 import pipeline: expand folders, pair media with SRTs, probe media in a hidden
 // <video>, create the minute and attach its SRT.
-import { call, general, importing, importDialog, showToast, upsertMinute, section, alertError, importSummaryText, detail } from './state.js';
+import { call, general, importing, importDialog, showToast, upsertMinute, section, alertError, importSummaryText, detail, currentFolderID } from './state.js';
+import { L } from '../core/i18n.js';
+import { compactDuration } from '../core/time.js';
 import { pairFiles, normalizedTitle, stem, baseName, dateFromFileName } from '../core/pairing.js';
 
 /** Loads metadata (and a cover frame at 10% for video) without touching the DOM. */
@@ -12,14 +14,14 @@ export async function probeMedia(path, { cover = true } = {}) {
   video.src = url;
   try {
     await new Promise((resolve, reject) => {
-      const t = setTimeout(() => reject(new Error('读取媒体超时')), 20000);
+      const t = setTimeout(() => reject(new Error(L('读取媒体超时'))), 20000);
       video.onloadedmetadata = () => {
         clearTimeout(t);
         resolve();
       };
       video.onerror = () => {
         clearTimeout(t);
-        reject(new Error('无法读取该媒体文件（格式或编码不受支持）'));
+        reject(new Error(L('无法读取该媒体文件（格式或编码不受支持）')));
       };
     });
     const duration = Number.isFinite(video.duration) ? video.duration : 0;
@@ -57,7 +59,7 @@ export async function probeMedia(path, { cover = true } = {}) {
   }
 }
 
-async function createMinute(media, subtitle) {
+async function createMinute(media, subtitle, folderID) {
   const info = await probeMedia(media);
   const base = stem(media);
   const now = new Date();
@@ -68,6 +70,7 @@ async function createMinute(media, subtitle) {
     createdAt: created.toISOString(),
     duration: info.duration,
     isAudioOnly: !info.hasVideo,
+    folderID,
   });
   if (info.coverBase64) {
     await call('lib:saveCover', minute.id, info.coverBase64);
@@ -80,7 +83,7 @@ async function createMinute(media, subtitle) {
       minute = r.minute;
       transcript = r.transcript;
     } catch (e) {
-      await alertError(`字幕「${baseName(subtitle)}」解析失败`, e.message);
+      await alertError(L('字幕「{0}」解析失败', baseName(subtitle)), e.message);
     }
   }
   upsertMinute(minute);
@@ -89,15 +92,17 @@ async function createMinute(media, subtitle) {
 
 export async function runImport(pairs) {
   if (!pairs.length) return;
+  // Imports land in the folder that was open when they started.
+  const folderID = currentFolderID.value;
   importing.value = true;
   const created = [];
   const failures = [];
   try {
     for (const p of pairs) {
       try {
-        created.push(await createMinute(p.media, p.subtitle));
+        created.push(await createMinute(p.media, p.subtitle, folderID));
       } catch (e) {
-        failures.push(`${baseName(p.media)}：${e.message}`);
+        failures.push(L('{0}：{1}', baseName(p.media), e.message));
       }
     }
   } finally {
@@ -106,12 +111,11 @@ export async function runImport(pairs) {
   if (section.value === 'trash') section.value = 'all';
   if (created.length === 1) {
     const { minute, transcript } = created[0];
-    const d = Math.round(minute.duration);
-    showToast(transcript ? importSummaryText(transcript, minute.duration) : `已导入「${minute.title}」，时长 ${Math.floor(d / 60)}:${String(d % 60).padStart(2, '0')}`);
+    showToast(transcript ? importSummaryText(transcript, minute.duration) : L('已导入「{0}」，时长 {1}', minute.title, compactDuration(minute.duration)));
   } else if (created.length > 1) {
-    showToast(`已导入 ${created.length} 个妙记`);
+    showToast(L('已导入 {0} 个妙记', created.length));
   }
-  if (failures.length) await alertError('部分文件导入失败', failures.join('\n'));
+  if (failures.length) await alertError(L('部分文件导入失败'), failures.join('\n'));
   return created;
 }
 
@@ -123,9 +127,9 @@ export async function importPaths(paths) {
       if (detail.value) await detail.value.importSRT(subtitles[0]);
       else importDialog.value = { media: null, subtitle: subtitles[0] };
     } else if (subtitles.length > 1) {
-      await call('dialog:alert', { title: '请同时选择音视频文件', message: '字幕需要与对应的音视频一起导入。' });
+      await call('dialog:alert', { title: L('请同时选择音视频文件'), message: L('字幕需要与对应的音视频一起导入。') });
     } else if (otherCount || paths.length) {
-      await call('dialog:alert', { title: '没有可导入的文件', message: '支持的媒体：mp4 / mov / m4v / mp3 / m4a / wav / aac；字幕：srt。' });
+      await call('dialog:alert', { title: L('没有可导入的文件'), message: L('支持的媒体：mp4 / mov / m4v / mp3 / m4a / wav / aac；字幕：srt。') });
     }
     return [];
   }
@@ -138,10 +142,10 @@ export async function importPaths(paths) {
     pairs = r.pairs;
     for (const s of r.suggestions) {
       const use = await call('dialog:confirm', {
-        title: `使用「${baseName(s.subtitle)}」作为字幕？`,
-        message: `没有找到与「${baseName(s.media)}」同名的 SRT，同一文件夹中只有这一个字幕文件。`,
-        ok: '使用',
-        cancel: '不使用',
+        title: L('使用「{0}」作为字幕？', baseName(s.subtitle)),
+        message: L('没有找到与「{0}」同名的 SRT，同一文件夹中只有这一个字幕文件。', baseName(s.media)),
+        ok: L('使用'),
+        cancel: L('不使用'),
       });
       if (use) pairs.push(s);
       else {
@@ -154,8 +158,8 @@ export async function importPaths(paths) {
   const created = await runImport(pairs);
   if (leftovers.length) {
     await call('dialog:alert', {
-      title: `有 ${leftovers.length} 个字幕未能配对`,
-      message: `${leftovers.map(baseName).join('\n')}\n\n可以打开对应的妙记，在「··· → 重新导入 SRT」或文字记录空状态中手动指定。`,
+      title: L('有 {0} 个字幕未能配对', leftovers.length),
+      message: L('{0}\n\n可以打开对应的妙记，在「··· → 重新导入 SRT」或文字记录空状态中手动指定。', leftovers.map(baseName).join('\n')),
     });
   }
   return created;

@@ -1,63 +1,97 @@
-import { useEffect, useRef, useState } from 'preact/hooks';
-import { goBack, general, updateGeneral, moveToTrash } from '../state.js';
-import { createdDate, durationCN } from '../../core/time.js';
+import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
+import { goBack, general, updateGeneral, requestMoveToTrash } from '../state.js';
+import { createdDate, duration } from '../../core/time.js';
+import { L } from '../../core/i18n.js';
 import { Icon, Logo, Tag, Menu, Tab } from './ui.jsx';
 import { Player } from './Player.jsx';
 import { LeftBottomPanel } from './Speakers.jsx';
 import { TranscriptPanel } from './Transcript.jsx';
 import { SummaryPanel } from './Summary.jsx';
 
+/** Shared by the top bar "导出" button and the transcript "···" menu (§2, §5.1). */
+export function exportMenuItems(model) {
+  const none = !model.transcript.value;
+  return [
+    { label: L('导出 SRT'), icon: 'bubble', disabled: none, onClick: () => model.export('srt') },
+    { label: L('导出 TXT（带时间戳与发言人）'), icon: 'doc', disabled: none, onClick: () => model.export('txt') },
+    { label: L('导出 Markdown（纪要 + 文字记录）'), icon: 'docPlus', onClick: () => model.export('markdown') },
+  ];
+}
+
+/**
+ * Title that edits in place, like a Google Docs title: I-beam on hover, a click puts the caret
+ * there, Enter or a click anywhere else saves, Esc restores the old title.
+ */
+function EditableTitle({ model }) {
+  const title = model.minute.value.title;
+  const [draft, setDraft] = useState(title);
+  const [editing, setEditing] = useState(false);
+  const [width, setWidth] = useState(0);
+  const input = useRef(null);
+  const measure = useRef(null);
+  const cancelled = useRef(false);
+
+  useEffect(() => {
+    if (!editing) setDraft(title);
+  }, [title]);
+  useLayoutEffect(() => {
+    if (measure.current) setWidth(Math.min(520, Math.max(40, Math.ceil(measure.current.getBoundingClientRect().width) + 6)));
+  }, [draft, title]);
+
+  const end = () => {
+    setEditing(false);
+    if (cancelled.current) {
+      cancelled.current = false;
+      setDraft(title);
+      return;
+    }
+    const t = draft.trim();
+    if (!t) setDraft(title);
+    else if (t !== title) model.renameTitle(t);
+  };
+
+  return (
+    <span class={`title-edit ${editing ? 'editing' : ''}`}>
+      <span class="title-measure" ref={measure} aria-hidden="true">
+        {draft || title}
+      </span>
+      <input
+        ref={input}
+        class="title-input"
+        value={draft}
+        spellcheck={false}
+        style={{ width }}
+        title={editing ? '' : L('点击修改标题')}
+        onFocus={() => setEditing(true)}
+        onInput={(e) => setDraft(e.currentTarget.value)}
+        onBlur={end}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            input.current.blur();
+          } else if (e.key === 'Escape') {
+            e.preventDefault();
+            e.stopPropagation();
+            cancelled.current = true;
+            input.current.blur();
+          }
+        }}
+      />
+    </span>
+  );
+}
+
 function TopBar({ model }) {
   const m = model.minute.value;
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState('');
-  const input = useRef(null);
-  useEffect(() => {
-    if (editing) {
-      input.current?.focus();
-      input.current?.select();
-    }
-  }, [editing]);
-  const commit = () => {
-    setEditing(false);
-    model.renameTitle(draft);
-  };
-  const hasTranscript = !!model.transcript.value;
   return (
     <header class="topbar drag">
-      <button class="btn-icon" style={{ width: 30, height: 30, color: 'var(--text)' }} onClick={goBack} title="返回列表（Ctrl+[）">
+      <button class="btn-icon back-button" onClick={goBack} title={L('返回列表（Ctrl+[）')}>
         <Icon name="back" size={18} />
       </button>
       <Logo size={32} />
       <div style={{ minWidth: 0, flex: '0 1 auto' }}>
         <div class="topbar-title">
-          {editing ? (
-            <input
-              ref={input}
-              class="title-input no-drag"
-              value={draft}
-              onInput={(e) => setDraft(e.currentTarget.value)}
-              onBlur={commit}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') commit();
-                if (e.key === 'Escape') {
-                  e.stopPropagation();
-                  setEditing(false);
-                }
-              }}
-            />
-          ) : (
-            <span
-              class="title no-drag"
-              title="双击修改标题"
-              onDblClick={() => {
-                setDraft(m.title);
-                setEditing(true);
-              }}
-            >
-              {m.title}
-            </span>
-          )}
+          <EditableTitle model={model} />
           {model.tags.value.map((t) => (
             <Tag key={t.text} text={t.text} warn={t.warn} />
           ))}
@@ -65,35 +99,34 @@ function TopBar({ model }) {
         <div class="topbar-sub">
           <span>{createdDate(m.createdAt)}</span>
           <span class="vsep" />
-          <span>{durationCN(model.totalDuration)}</span>
+          <span>{duration(model.totalDuration)}</span>
         </div>
       </div>
       <div style={{ flex: 1 }} />
       <Menu
         align="right"
-        items={[
-          { label: '导出 SRT', disabled: !hasTranscript, onClick: () => model.export('srt') },
-          { label: '导出 TXT（带时间戳与发言人）', disabled: !hasTranscript, onClick: () => model.export('txt') },
-          { label: '导出 Markdown（纪要 + 文字记录）', onClick: () => model.export('markdown') },
-        ]}
+        minWidth={200}
+        items={exportMenuItems(model)}
         trigger={({ toggle }) => (
           <button class="btn-primary" onClick={toggle}>
             <Icon name="share" size={14} />
-            导出
+            {L('导出')}
           </button>
         )}
       />
       <Menu
         align="right"
+        title={L('更多')}
+        minWidth={190}
         items={[
-          { label: '重新导入 SRT…', onClick: () => model.chooseSRT() },
-          { label: '更换媒体文件…', onClick: () => model.relocateMedia() },
-          { label: '在资源管理器中显示', onClick: () => model.revealMedia() },
+          { label: L('重新导入 SRT…'), icon: 'bubble', onClick: () => model.chooseSRT() },
+          { label: L('更换媒体文件…'), icon: 'film', onClick: () => model.relocateMedia() },
+          { label: L('在资源管理器中显示'), icon: 'folder', onClick: () => model.revealMedia() },
           'sep',
-          { label: '移到回收站', danger: true, onClick: () => moveToTrash([m.id]) },
+          { label: L('移到回收站'), icon: 'trash', danger: true, onClick: () => requestMoveToTrash([m.id]) },
         ]}
-        trigger={({ toggle }) => (
-          <button class="btn-icon" style={{ width: 30, height: 30, color: 'var(--text)' }} onClick={toggle} title="更多">
+        trigger={({ open, toggle }) => (
+          <button class={`btn-icon ${open ? 'active-bg' : ''}`} style={{ width: 30, height: 30, color: 'var(--text)' }} onClick={toggle}>
             <Icon name="more" size={18} />
           </button>
         )}
@@ -107,8 +140,8 @@ function RightCard({ model }) {
   return (
     <section class="right-card">
       <div class="tabs">
-        <Tab title="智能纪要" selected={tab === 'summary'} onClick={() => (model.rightTab.value = 'summary')} />
-        <Tab title="文字记录" selected={tab === 'transcript'} onClick={() => (model.rightTab.value = 'transcript')} />
+        <Tab title={L('智能纪要')} selected={tab === 'summary'} onClick={() => (model.rightTab.value = 'summary')} />
+        <Tab title={L('文字记录')} selected={tab === 'transcript'} onClick={() => (model.rightTab.value = 'transcript')} />
       </div>
       <div class="tab-stack">
         <div class={`tab-pane ${tab === 'summary' ? '' : 'hidden'}`}>
@@ -169,7 +202,7 @@ export function DetailPage({ model }) {
   };
 
   return (
-    <div class="detail">
+    <div class="detail detail-enter">
       <TopBar model={model} />
       <div class="columns" ref={columns}>
         <div class="left-col" style={{ width: leftWidth }}>

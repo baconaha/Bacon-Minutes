@@ -6,6 +6,8 @@ const CHANNELS = new Set([
   'lib:trash', 'lib:restore', 'lib:remove', 'lib:search', 'lib:saveCover', 'lib:create', 'lib:attachSrt',
   'fs:expand', 'fs:exists', 'fs:fileURL', 'fs:reveal',
   'dialog:openFiles', 'dialog:openFolder', 'dialog:openMedia', 'dialog:openSrt', 'dialog:confirm', 'dialog:alert', 'dialog:saveText',
+  'lib:folders', 'lib:createFolder', 'lib:renameFolder', 'lib:deleteFolder', 'lib:move',
+  'icon:get', 'icon:choose', 'icon:reset',
   'clipboard:write', 'win:titleBar',
   'llm:test', 'llm:models', 'llm:generate', 'llm:cancel',
 ]);

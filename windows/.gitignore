@@ -3,3 +3,4 @@ dist/
 release/
 test-output/
 e2e/.work/
+src/i18n/generated.json

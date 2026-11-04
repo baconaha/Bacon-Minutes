@@ -13,7 +13,7 @@ const check = (name, ok, detail = '') => { results.push(`${ok ? 'PASS' : 'FAIL'}
   const app = await _electron.launch({
     executablePath: path.join(APP, 'node_modules/electron/dist/electron'),
     args: ['--no-sandbox', path.join(APP, 'dist/main.cjs')],
-    env: { ...process.env, LOCALMINUTES_E2E: '1', LOCALMINUTES_USER_DATA: DATA, NODE_OPTIONS: '' },
+    env: { ...process.env, LOCALMINUTES_E2E: '1', LOCALMINUTES_USER_DATA: DATA, LOCALMINUTES_LANG: 'zh-CN', NODE_OPTIONS: '' },
   });
   const page = await app.firstWindow();
   const errors = [];
@@ -129,11 +129,13 @@ const check = (name, ok, detail = '') => { results.push(`${ok ? 'PASS' : 'FAIL'}
 
   // --- rate menu ---
   await page.mouse.move(300, 300);
-  await page.click('button[title="播放倍率"]');
-  await page.click('.popup .rate:has-text("1.5x")');
+  await page.click('.controls-row .pbtn:has-text("1x")');
+  await page.click('.menu-item:has-text("1.5x")');
   check('rate 1.5x applied', (await ev(`${D}.video.playbackRate`)) === 1.5);
-  await page.click('button[title="播放倍率"]');
-  await page.click('.popup .rate:has-text("1x")');
+  await page.waitForTimeout(200);
+  await page.click('.controls-row .pbtn:has-text("1.5x")');
+  await page.click('.menu-item >> text="1x"');
+  await page.mouse.move(300, 300);
 
   // --- AI summary with mock server ---
   await ev(`window.__lm.state.updateLLM({ ...window.__lm.state.llm.value, presetID: 'custom', protocol: 'openAI', baseURL: 'http://127.0.0.1:18765/v1', model: 'mock-large' })`);
@@ -220,7 +222,10 @@ const check = (name, ok, detail = '') => { results.push(`${ok ? 'PASS' : 'FAIL'}
   await page.hover('.row:has-text("访谈录音")');
   await page.click('.row:has-text("访谈录音") .checkbox');
   await page.keyboard.press('Delete');
-  await page.waitForTimeout(400);
+  await page.waitForSelector('.flip-card');
+  check('Delete asks first, with the bold media note', (await page.textContent('.confirm-emphasis')).includes('原始媒体文件不会被删除'));
+  await page.click('.btn-danger');
+  await page.waitForTimeout(500);
   check('Delete moves selection to trash', (await page.$$('.row')).length === 1);
   await page.click('.nav-item:has-text("回收站")');
   await page.waitForTimeout(300);

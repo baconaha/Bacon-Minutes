@@ -1,17 +1,17 @@
 {
-  "name": "localminutes",
-  "productName": "本地妙记",
+  "name": "baconminutes",
+  "productName": "Bacon Minutes",
   "version": "1.0.0",
   "description": "Local recordings + SRT transcripts with AI summaries",
-  "author": "LocalMinutes",
+  "author": "Bacon Minutes",
   "license": "UNLICENSED",
   "private": true,
   "type": "module",
   "main": "dist/main.cjs",
   "scripts": {
-    "build": "node scripts/build.mjs",
+    "build": "node scripts/i18n.mjs && node scripts/build.mjs",
     "start": "npm run build && electron .",
-    "test": "node --test \"test/*.test.js\"",
+    "test": "node scripts/i18n.mjs && node --test \"test/*.test.js\"",
     "dist": "npm run build && electron-builder --win nsis --publish never"
   },
   "devDependencies": {
@@ -23,9 +23,9 @@
   },
   "build": {
     "appId": "com.localminutes.app",
-    "productName": "本地妙记",
-    "executableName": "LocalMinutes",
-    "artifactName": "LocalMinutes-Setup-${version}-${arch}.${ext}",
+    "productName": "Bacon Minutes",
+    "executableName": "BaconMinutes",
+    "artifactName": "BaconMinutes-Setup-${version}-${arch}.${ext}",
     "directories": {
       "output": "release",
       "buildResources": "build"
@@ -51,8 +51,8 @@
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "shortcutName": "本地妙记",
-      "uninstallDisplayName": "本地妙记"
+      "shortcutName": "Bacon Minutes",
+      "uninstallDisplayName": "Bacon Minutes"
     }
   }
 }

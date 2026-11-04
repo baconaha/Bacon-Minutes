@@ -8,6 +8,7 @@ import { exportSRT, exportTXT, exportMarkdown, summaryMarkdown } from '../core/e
 import { buildSummaryInput } from '../core/summary.js';
 import { baseName } from '../core/pairing.js';
 import { probeMedia } from './importer.js';
+import { L } from '../core/i18n.js';
 
 const clamp01 = (x) => Math.min(1, Math.max(0, x));
 
@@ -25,6 +26,10 @@ export class DetailModel {
     this.mediaState = signal('loading'); // loading | ready | missing | error
     this.mediaError = signal('');
     this.mediaURL = signal(null);
+    /** True once the first video frame can be shown; the picture fades in then. */
+    this.videoReady = signal(false);
+    /** The transcript DOM is built only after the page transition (it is the heavy part). */
+    this.transcriptRevealed = signal(false);
     this.currentTime = signal(minute.lastPlaybackPosition || 0);
     this.duration = signal(minute.duration || 0);
     this.playing = signal(false);
@@ -62,16 +67,17 @@ export class DetailModel {
     this.stale = computed(() => !!this.summary.value && !!this.transcript.value && this.summary.value.transcriptHash !== this.hash.value);
     this.tags = computed(() => {
       const out = [];
-      if (this.mediaState.value === 'missing') out.push({ text: '媒体缺失', warn: true });
-      if (!this.transcript.value) out.push({ text: '无字幕', warn: true });
-      if (this.summary.value) out.push({ text: '已生成纪要' });
+      if (this.mediaState.value === 'missing') out.push({ text: L('媒体缺失'), warn: true });
+      if (!this.transcript.value) out.push({ text: L('无字幕'), warn: true });
+      if (this.summary.value) out.push({ text: L('已生成纪要') });
       return out;
     });
   }
 
   // ---------- lifecycle ----------
 
-  async start() {
+  /** Loads transcript and summary before the page is shown. */
+  async prepare() {
     const id = this.minute.value.id;
     const [transcript, summary] = await Promise.all([call('lib:transcript', id), call('lib:summary', id)]);
     batch(() => {
@@ -79,6 +85,12 @@ export class DetailModel {
       this.summary.value = summary;
     });
     this.rebuildDerived();
+  }
+
+  /** Media, playback and the transcript text; called once the page transition has finished. */
+  async start() {
+    if (this.closed) return;
+    this.transcriptRevealed.value = true;
     await this.resolveMedia();
     this.saveTimer = setInterval(() => this.persistPosition(), 10000);
   }
@@ -157,6 +169,8 @@ export class DetailModel {
       this.mediaState.value = 'ready';
       this.refreshHighlight(resume);
     });
+    el.addEventListener('loadeddata', () => (this.videoReady.value = true));
+    el.addEventListener('emptied', () => (this.videoReady.value = false));
     el.addEventListener('play', () => {
       this.playing.value = true;
       this.loop();
@@ -177,7 +191,7 @@ export class DetailModel {
       if (el.paused) this.currentTime.value = el.currentTime;
     });
     el.addEventListener('error', () => {
-      this.mediaError.value = '无法播放此文件（格式或编码不受支持）';
+      this.mediaError.value = L('无法播放此文件（格式或编码不受支持）');
       this.mediaState.value = 'error';
     });
   }
@@ -259,7 +273,7 @@ export class DetailModel {
     if (!path) return;
     try {
       const info = await probeMedia(path);
-      await this.saveMinute({ mediaPath: path, mediaFileName: baseName(path), isAudioOnly: !info.hasVideo, duration: info.duration });
+      await this.saveMinute({ mediaPath: path, mediaFileName: baseName(path), isAudioOnly: !info.hasVideo, duration: info.duration, mediaSize: null });
       if (info.coverBase64) {
         await call('lib:saveCover', this.minute.value.id, info.coverBase64);
         upsertMinute(await call('lib:get', this.minute.value.id));
@@ -269,12 +283,12 @@ export class DetailModel {
       this.mediaState.value = 'loading';
       this.mediaURL.value = await call('fs:fileURL', path);
     } catch (e) {
-      alertError('无法使用该文件', e.message);
+      alertError(L('无法使用该文件'), e.message);
     }
   }
 
   revealMedia() {
-    call('fs:reveal', this.minute.value.mediaPath).catch((e) => alertError('找不到媒体文件', e.message));
+    call('fs:reveal', this.minute.value.mediaPath).catch((e) => alertError(L('找不到媒体文件'), e.message));
   }
 
   /** Progress-bar hover thumbnail in 2-second buckets (§3.2). */
@@ -488,7 +502,7 @@ export class DetailModel {
       this.rightTab.value = 'transcript';
       showToast(importSummaryText(transcript, this.totalDuration));
     } catch (e) {
-      alertError('无法导入字幕', e.message);
+      alertError(L('无法导入字幕'), e.message);
     }
   }
 
@@ -591,7 +605,7 @@ export class DetailModel {
   async generate() {
     const tr = this.transcript.value;
     if (!tr) {
-      this.summaryState.value = { status: 'failed', message: '请先导入 SRT 字幕，再生成智能纪要' };
+      this.summaryState.value = { status: 'failed', message: L('请先导入 SRT 字幕，再生成智能纪要') };
       return;
     }
     const input = buildSummaryInput({
@@ -606,12 +620,12 @@ export class DetailModel {
     this.jobId = jobId;
     const hash = this.hash.value;
     batch(() => {
-      this.summaryState.value = { status: 'generating', text: '正在生成…' };
+      this.summaryState.value = { status: 'generating', text: L('正在生成…') };
       this.rightTab.value = 'summary';
     });
     const off = lm.onProgress((p) => {
       if (p.jobId !== jobId || this.jobId !== jobId) return;
-      const text = p.type === 'part' ? `正在生成… 第 ${p.i}/${p.n} 部分` : p.type === 'merging' ? '正在合并各部分…' : '正在生成…';
+      const text = p.type === 'part' ? L('正在生成… 第 {0}/{1} 部分', p.i, p.n) : p.type === 'merging' ? L('正在合并各部分…') : L('正在生成…');
       this.summaryState.value = { status: 'generating', text };
     });
     try {
@@ -639,20 +653,11 @@ export class DetailModel {
     this.summaryState.value = { status: 'idle' };
   }
 
-  async setFeedback(value, chapters) {
-    const s = this.summary.value;
-    if (!s) return;
-    const key = chapters ? 'chaptersFeedback' : 'feedback';
-    const next = { ...s, [key]: s[key] === value ? null : value };
-    this.summary.value = next;
-    await call('lib:saveSummary', this.minute.value.id, next);
-  }
-
   async copySummaryMarkdown() {
     const s = this.summary.value;
     if (!s) return;
     await call('clipboard:write', summaryMarkdown(s, this.hours));
-    showToast('已复制为 Markdown');
+    showToast(L('已复制为 Markdown'));
   }
 
   // ---------- export (§2) ----------
@@ -676,7 +681,7 @@ export class DetailModel {
       ext = 'md';
     }
     const ok = await call('dialog:saveText', { text, name: m.title, ext });
-    if (ok) showToast('已导出');
+    if (ok) showToast(L('已导出'));
   }
 }
 

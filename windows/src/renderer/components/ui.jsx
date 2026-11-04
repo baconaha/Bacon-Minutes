@@ -1,5 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import { createPortal } from 'preact/compat';
+import { customIcon } from '../state.js';
+import { L, Lin, LANGUAGES } from '../../core/i18n.js';
 
 // ---------- icons (24×24, stroke based) ----------
 
@@ -137,6 +139,31 @@ const ICONS = {
   eyeOff: <path {...S} d="M3 3l18 18M10.6 6a9.8 9.8 0 0 1 1.4-.1c6 0 9.5 6.1 9.5 6.1a17 17 0 0 1-3 3.6M6.6 7.1A16.8 16.8 0 0 0 2.5 12s3.5 6.5 9.5 6.5a9.5 9.5 0 0 0 4.1-.9M9.9 9.9a3 3 0 0 0 4.2 4.2" />,
   waveform: <path {...S} stroke-width="2" d="M4 10v4M8 7v10M12 4v16M16 7v10M20 10v4" />,
   folder: <path {...S} d="M3.5 6.5a1 1 0 0 1 1-1h5l2 2.5h8a1 1 0 0 1 1 1v9.5a1 1 0 0 1-1 1h-15a1 1 0 0 1-1-1z" />,
+  folderFill: <path {...F} d="M3.5 6.5a1 1 0 0 1 1-1h5l2 2.5h8a1 1 0 0 1 1 1v9.5a1 1 0 0 1-1 1h-15a1 1 0 0 1-1-1z" />,
+  folderMinus: (
+    <g {...S}>
+      <path d="M3.5 6.5a1 1 0 0 1 1-1h5l2 2.5h8a1 1 0 0 1 1 1v9.5a1 1 0 0 1-1 1h-15a1 1 0 0 1-1-1z" />
+      <path d="M9 13.5h6" />
+    </g>
+  ),
+  info: (
+    <g {...S}>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M12 11v5.5M12 7.8h.01" />
+    </g>
+  ),
+  pencil: <path {...S} d="M4.5 19.5l1-4L15.8 5.2a2 2 0 0 1 2.8 0l.2.2a2 2 0 0 1 0 2.8L8.5 18.5zM13.5 7.5l3 3" />,
+  download: <path {...S} d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 15.5V19a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-3.5" />,
+  tray: <path {...S} d="M3.5 13.5l2.5-8h12l2.5 8v5a1 1 0 0 1-1 1h-15a1 1 0 0 1-1-1zM3.5 13.5H8.5l1 2.5h5l1-2.5h5" />,
+  refresh: <path {...S} d="M19.5 12a7.5 7.5 0 1 1-2.3-5.4M19.5 4.5v4h-4" />,
+  copy: (
+    <g {...S}>
+      <rect x="8.5" y="8.5" width="11" height="11" rx="1.5" />
+      <path d="M15.5 8.5V5.5a1 1 0 0 0-1-1h-9a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h3" />
+    </g>
+  ),
+  doc: <path {...S} d="M14 3.5H7a1.5 1.5 0 0 0-1.5 1.5v14A1.5 1.5 0 0 0 7 20.5h10a1.5 1.5 0 0 0 1.5-1.5V8zM14 3.5V8h4.5M9 12.5h6M9 16h6" />,
+  skip: <path {...S} d="M5 6l8 6-8 6zM17 6v12" />,
 };
 
 export function Icon({ name, size = 16, class: cls = '', style }) {
@@ -149,18 +176,19 @@ export function Icon({ name, size = 16, class: cls = '', style }) {
   );
 }
 
+/** The app icon: the user's uploaded artwork, or the default (same design as the Mac app). */
 export function Logo({ size = 32 }) {
-  return (
-    <span class="logo" style={{ width: size, height: size }}>
-      <Icon name="waveform" size={size * 0.62} />
-    </span>
-  );
+  return <img class="logo" src={customIcon.value || 'logomark.png'} alt="" draggable={false} style={{ width: size, height: size, borderRadius: size * 0.225 }} />;
 }
 
+// Generic speaker words in every UI language ("说话人", "Speaker", "話者" …).
+const GENERIC_SPEAKER = new Set(['说话人', 'speaker', ...LANGUAGES.map((l) => Lin(l.id, '说话人 {0}', '').trim().toLowerCase())]);
+
+/** "说话人 3" / "Speaker 3" → "3"; otherwise the first character. */
 export function avatarInitial(name) {
   const t = (name || '').trim();
-  const m = /^(?:说话人|speaker)\s*(\d+)$/i.exec(t);
-  if (m) return m[1].slice(0, 2);
+  const m = /^(.*?)\s*(\d+)$/.exec(t);
+  if (m && GENERIC_SPEAKER.has(m[1].toLowerCase())) return m[2].slice(0, 2);
   return t ? Array.from(t)[0].toUpperCase() : '?';
 }
 
@@ -209,54 +237,173 @@ export function Tab({ title, selected, onClick, small }) {
   );
 }
 
+
+// ---------- dropdown menus ----------
+// Feishu-style cards that flip down from their button. Most open when the pointer rests on the
+// button; list rows, folders and form fields open on click. Long lists scroll.
+
+let openMenu = null; // only one menu at a time
+
 /**
- * Dropdown menu positioned under (or above) its trigger, rendered in a portal.
- * items: [{ label, onClick, disabled, selected, danger } | 'sep']
+ * items: [{ label, icon, onClick, disabled, selected, danger } | { toggle: true, label, icon, on, onChange } | 'sep']
+ * trigger({ open, toggle }) renders the button.
  */
-export function Menu({ trigger, items, align = 'left', up = false, title }) {
+export function Menu({ trigger, items, align = 'left', up = false, title, hover = true, dark = false, minWidth = 160, onOpenChange }) {
   const [open, setOpen] = useState(false);
+  const [closing, setClosing] = useState(false);
   const [pos, setPos] = useState(null);
   const anchor = useRef(null);
   const menu = useRef(null);
+  const timers = useRef({});
+  const inside = useRef({ anchor: false, menu: false });
+  // Timers and window listeners outlive a render, so they read the live state from here.
+  const st = useRef({ open: false, closing: false }).current;
+  const self = useRef({}).current;
+
+  const setState = (o, c) => {
+    st.open = o;
+    st.closing = c;
+    setOpen(o);
+    setClosing(c);
+  };
+
+  const close = (animated = true) => {
+    clearTimeout(timers.current.open);
+    clearTimeout(timers.current.close);
+    clearTimeout(timers.current.fold);
+    if (!st.open) return;
+    if (!animated) {
+      setState(false, false);
+      return;
+    }
+    if (st.closing) return;
+    setState(true, true);
+    timers.current.fold = setTimeout(() => setState(false, false), 120);
+  };
+  self.close = close;
+
+  const show = () => {
+    clearTimeout(timers.current.open);
+    clearTimeout(timers.current.fold);
+    if (st.open) {
+      if (st.closing) setState(true, false); // reopened while folding away
+      return;
+    }
+    if (openMenu && openMenu !== self) openMenu.close(false);
+    openMenu = self;
+    setPos(null);
+    setState(true, false);
+  };
+
+  // Hover menus stay open when their button is clicked; click menus toggle closed.
+  const toggle = () => {
+    if (st.open && !st.closing) {
+      if (!hover) close();
+    } else {
+      show();
+    }
+  };
+
+  // Hover menus close shortly after the pointer has left both the button and the card.
+  const scheduleHoverClose = () => {
+    clearTimeout(timers.current.close);
+    if (inside.current.anchor || inside.current.menu) return;
+    timers.current.close = setTimeout(() => {
+      if (!inside.current.anchor && !inside.current.menu) close();
+    }, 220);
+  };
+
+  const onAnchorEnter = () => {
+    inside.current.anchor = true;
+    if (!hover) return;
+    clearTimeout(timers.current.close);
+    timers.current.open = setTimeout(show, 120);
+  };
+  const onAnchorLeave = () => {
+    inside.current.anchor = false;
+    clearTimeout(timers.current.open);
+    if (hover && st.open) scheduleHoverClose();
+  };
 
   useLayoutEffect(() => {
-    if (!open || !anchor.current) return;
+    if (!open || !anchor.current || !menu.current) return;
     const r = anchor.current.getBoundingClientRect();
-    const m = menu.current?.getBoundingClientRect();
-    const w = m?.width || 180;
-    const h = m?.height || 0;
-    let left = align === 'right' ? r.right - w : r.left;
-    left = Math.max(8, Math.min(left, window.innerWidth - w - 8));
-    let top = up ? r.top - h - 6 : r.bottom + 6;
-    if (!up && top + h > window.innerHeight - 8) top = Math.max(8, r.top - h - 6);
-    setPos({ left, top });
-  }, [open, menu.current]);
+    const m = menu.current.getBoundingClientRect();
+    let left = align === 'right' ? r.right - m.width : align === 'center' ? r.left + r.width / 2 - m.width / 2 : r.left;
+    left = Math.max(8, Math.min(left, window.innerWidth - m.width - 8));
+    let above = up;
+    let top = up ? r.top - m.height - 6 : r.bottom + 6;
+    if (!up && top + m.height > window.innerHeight - 8) {
+      top = Math.max(8, r.top - m.height - 6);
+      above = true;
+    } else if (up && top < 8) {
+      top = r.bottom + 6;
+      above = false;
+    }
+    setPos({ left, top, above });
+    const selected = menu.current.querySelector('.menu-item.selected');
+    if (selected && menu.current.scrollHeight > menu.current.clientHeight) {
+      menu.current.scrollTop = selected.offsetTop - menu.current.clientHeight / 2 + selected.offsetHeight / 2;
+    }
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
-    const close = (e) => {
-      if (menu.current?.contains(e.target) || anchor.current?.contains(e.target)) return;
-      setOpen(false);
+    const down = (e) => {
+      if (menu.current?.contains(e.target)) return;
+      if (anchor.current?.contains(e.target)) return; // the trigger's own click toggles
+      close();
     };
-    const esc = (e) => e.key === 'Escape' && setOpen(false);
-    window.addEventListener('mousedown', close, true);
+    const esc = (e) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        close();
+      }
+    };
+    const blur = () => close(false);
+    window.addEventListener('mousedown', down, true);
     window.addEventListener('keydown', esc, true);
-    window.addEventListener('blur', () => setOpen(false), { once: true });
+    window.addEventListener('blur', blur);
+    window.addEventListener('resize', blur);
     return () => {
-      window.removeEventListener('mousedown', close, true);
+      window.removeEventListener('mousedown', down, true);
       window.removeEventListener('keydown', esc, true);
+      window.removeEventListener('blur', blur);
+      window.removeEventListener('resize', blur);
+      if (openMenu === self) openMenu = null;
     };
   }, [open]);
 
+  useEffect(() => () => Object.values(timers.current).forEach(clearTimeout), []);
+  useEffect(() => onOpenChange?.(open), [open]);
+
   return (
-    <span class="menu-anchor" ref={anchor} title={title}>
-      {trigger({ open, toggle: () => setOpen(!open) })}
+    <span class="menu-anchor" ref={anchor} title={open ? undefined : title} onMouseEnter={onAnchorEnter} onMouseLeave={onAnchorLeave}>
+      {trigger({ open: open && !closing, toggle })}
       {open &&
         createPortal(
-          <div class="menu" ref={menu} style={pos ? { left: pos.left, top: pos.top } : { visibility: 'hidden', left: 0, top: 0 }}>
+          <div
+            class={`menu ${dark ? 'dark' : ''} ${pos ? (pos.above ? 'from-bottom' : 'from-top') : ''} ${closing ? 'closing' : ''}`}
+            ref={menu}
+            style={pos ? { left: pos.left, top: pos.top, minWidth } : { visibility: 'hidden', left: 0, top: 0, minWidth }}
+            onMouseEnter={() => {
+              inside.current.menu = true;
+              clearTimeout(timers.current.close);
+            }}
+            onMouseLeave={() => {
+              inside.current.menu = false;
+              if (hover) scheduleHoverClose();
+            }}
+          >
             {items.filter(Boolean).map((it, i) =>
               it === 'sep' ? (
                 <div class="menu-sep" key={i} />
+              ) : it.toggle ? (
+                <button key={i} class="menu-item" onClick={(e) => (e.stopPropagation(), it.onChange(!it.on))}>
+                  {it.icon && <Icon name={it.icon} size={16} class="mi-icon" />}
+                  <span class="mi-label">{it.label}</span>
+                  <span class={`mini-switch ${it.on ? 'on' : ''}`} />
+                </button>
               ) : (
                 <button
                   key={i}
@@ -264,12 +411,13 @@ export function Menu({ trigger, items, align = 'left', up = false, title }) {
                   disabled={it.disabled}
                   onClick={(e) => {
                     e.stopPropagation();
-                    setOpen(false);
+                    close();
                     it.onClick?.();
                   }}
                 >
-                  {it.selected !== undefined && <span style={{ width: 14, display: 'inline-flex' }}>{it.selected && <Icon name="check" size={14} />}</span>}
-                  {it.label}
+                  {it.icon && <Icon name={it.icon} size={16} class="mi-icon" />}
+                  <span class="mi-label">{it.label}</span>
+                  {it.selected && <Icon name="check" size={13} class="mi-check" />}
                 </button>
               ),
             )}
@@ -277,6 +425,34 @@ export function Menu({ trigger, items, align = 'left', up = false, title }) {
           document.body,
         )}
     </span>
+  );
+}
+
+/** "···" button with a dropdown. List rows and folders open it on click only. */
+export function MoreButton({ items, align = 'right', hover = true, size = 28, title, class: cls = '', onOpenChange }) {
+  return (
+    <Menu
+      align={align}
+      hover={hover}
+      onOpenChange={onOpenChange}
+      title={title ?? L('更多')}
+      items={items}
+      trigger={({ open, toggle }) => (
+        <button class={`btn-icon ${open ? 'active-bg' : ''} ${cls}`} style={{ width: size, height: size }} onClick={(e) => (e.stopPropagation(), toggle())}>
+          <Icon name="more" />
+        </button>
+      )}
+    />
+  );
+}
+
+/** Text-field-looking trigger for a dropdown (provider preset, model, languages). */
+export function SelectField({ text, open, onClick, width = 260 }) {
+  return (
+    <button class={`select-field ${open ? 'open' : ''}`} style={{ width }} onClick={onClick}>
+      <span class="sf-text">{text}</span>
+      <Icon name="chevronDown" size={12} class="sf-chevron" />
+    </button>
   );
 }
 
@@ -301,7 +477,7 @@ export function useContextMenu() {
   const node =
     state &&
     createPortal(
-      <div class="menu" ref={ref} style={{ left: state.x, top: state.y }}>
+      <div class="menu from-top" ref={ref} style={{ left: state.x, top: state.y }}>
         {state.items.map((it, i) =>
           it === 'sep' ? (
             <div class="menu-sep" key={i} />
@@ -367,10 +543,10 @@ export function PromptDialog({ title, initial, onDone, onCancel }) {
       />
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12 }}>
         <button class="btn-secondary" onClick={onCancel}>
-          取消
+          {L('取消')}
         </button>
         <button class="btn-primary" onClick={submit} disabled={!value.trim()}>
-          确定
+          {L('确定')}
         </button>
       </div>
     </Modal>

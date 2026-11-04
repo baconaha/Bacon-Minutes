@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, shell, Menu, net, nativeTheme, safeStorage, clipboard } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, shell, Menu, net, nativeTheme, safeStorage, clipboard, nativeImage } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -7,9 +7,27 @@ import { SettingsStore } from './settings.js';
 import { LLMClient } from '../core/llm.js';
 import { generateSummary } from '../core/summary.js';
 import { MEDIA_EXT, SUB_EXT, isMedia, isSubtitle } from '../core/pairing.js';
+import { L, setLanguage, bestLanguage } from '../core/i18n.js';
 
 const E2E = process.env.LOCALMINUTES_E2E === '1';
-if (process.env.LOCALMINUTES_USER_DATA) app.setPath('userData', process.env.LOCALMINUTES_USER_DATA);
+
+// Data lives in %APPDATA%\BaconMinutes. Builds from before the rename used the product name
+// "本地妙记" as the folder; it is moved over once.
+if (process.env.LOCALMINUTES_USER_DATA) {
+  app.setPath('userData', process.env.LOCALMINUTES_USER_DATA);
+} else {
+  const appData = app.getPath('appData');
+  const dataDir = path.join(appData, 'BaconMinutes');
+  const legacy = path.join(appData, '本地妙记');
+  if (!fs.existsSync(dataDir) && fs.existsSync(legacy)) {
+    try {
+      fs.renameSync(legacy, dataDir);
+    } catch {
+      // in use or not movable: start fresh rather than fail
+    }
+  }
+  app.setPath('userData', dataDir);
+}
 
 let win = null;
 let library = null;
@@ -27,6 +45,58 @@ app.on('second-instance', () => {
   }
 });
 
+function systemLanguage() {
+  if (process.env.LOCALMINUTES_LANG) return bestLanguage([process.env.LOCALMINUTES_LANG]);
+  const prefs = typeof app.getPreferredSystemLanguages === 'function' ? app.getPreferredSystemLanguages() : [];
+  return bestLanguage([...prefs, app.getLocale()]);
+}
+
+function applyLanguage() {
+  setLanguage(settings.general.language || systemLanguage());
+  win?.setTitle(L('培根妙记'));
+}
+
+// ----- app icon (shared by the window, the taskbar and the in-app logo) -----
+
+const iconFile = () => path.join(app.getPath('userData'), 'custom-icon.png');
+const defaultIcon = () => nativeImage.createFromPath(path.join(__dirname, 'icon.png'));
+
+function customIcon() {
+  const img = nativeImage.createFromPath(iconFile());
+  return img.isEmpty() ? null : img;
+}
+
+/** Crops transparent margins, then center-crops to a square (like the Mac app). */
+function normalizedArtwork(img) {
+  const { width, height } = img.getSize();
+  const bmp = img.toBitmap(); // BGRA
+  let minX = width, minY = height, maxX = -1, maxY = -1;
+  const step = Math.max(1, Math.floor(Math.min(width, height) / 256));
+  for (let y = 0; y < height; y += step) {
+    for (let x = 0; x < width; x += step) {
+      if (bmp[(y * width + x) * 4 + 3] > 25) {
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+  let crop = { x: 0, y: 0, width, height };
+  if (maxX >= minX && maxY >= minY) {
+    crop = { x: minX, y: minY, width: Math.min(width - minX, maxX - minX + step), height: Math.min(height - minY, maxY - minY + step) };
+  }
+  const side = Math.min(crop.width, crop.height);
+  const square = { x: Math.round(crop.x + (crop.width - side) / 2), y: Math.round(crop.y + (crop.height - side) / 2), width: side, height: side };
+  return img.crop(square).resize({ width: 512, height: 512, quality: 'best' });
+}
+
+function applyWindowIcon() {
+  if (!win) return;
+  const img = customIcon() || defaultIcon();
+  if (!img.isEmpty()) win.setIcon(img);
+}
+
 function createWindow() {
   const dark = nativeTheme.shouldUseDarkColors;
   win = new BrowserWindow({
@@ -34,7 +104,7 @@ function createWindow() {
     height: 820,
     minWidth: 1024,
     minHeight: 700,
-    title: '本地妙记',
+    title: L('培根妙记'),
     show: false,
     backgroundColor: dark ? '#1B1C1F' : '#F5F6FA',
     titleBarStyle: 'hidden',
@@ -49,16 +119,19 @@ function createWindow() {
       additionalArguments: E2E ? ['--lm-e2e'] : [],
     },
   });
+  applyWindowIcon();
   win.once('ready-to-show', () => win.show());
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   // Dropping a file outside a drop zone must not navigate away from the app.
   win.webContents.on('will-navigate', (e) => e.preventDefault());
+  // The page sets its own title; keep the app name.
+  win.on('page-title-updated', (e) => e.preventDefault());
   win.webContents.on('context-menu', (_e, params) => {
     const items = [];
     if (params.isEditable) {
-      items.push({ role: 'cut', label: '剪切' }, { role: 'copy', label: '复制' }, { role: 'paste', label: '粘贴' }, { type: 'separator' }, { role: 'selectAll', label: '全选' });
+      items.push({ role: 'cut', label: L('剪切') }, { role: 'copy', label: L('复制') }, { role: 'paste', label: L('粘贴') }, { type: 'separator' }, { role: 'selectAll', label: L('全选') });
     } else if (params.selectionText) {
-      items.push({ role: 'copy', label: '复制' });
+      items.push({ role: 'copy', label: L('复制') });
     }
     if (items.length) Menu.buildFromTemplate(items).popup({ window: win });
   });
@@ -105,8 +178,12 @@ function llmClient() {
 
 function registerIPC() {
   // ----- settings -----
-  handle('settings:get', () => ({ general: settings.general, llm: settings.llm, apiKey: settings.apiKey() }));
-  handle('settings:setGeneral', (patch) => settings.setGeneral(patch));
+  handle('settings:get', () => ({ general: settings.general, llm: settings.llm, apiKey: settings.apiKey(), systemLanguage: systemLanguage() }));
+  handle('settings:setGeneral', (patch) => {
+    const g = settings.setGeneral(patch);
+    if ('language' in patch) applyLanguage();
+    return g;
+  });
   handle('settings:setLLM', (config) => {
     const before = settings.llm.presetID;
     const llm = settings.setLLM(config);
@@ -115,6 +192,28 @@ function registerIPC() {
   handle('settings:setApiKey', (key) => settings.setApiKey(key));
   handle('settings:resetCompat', () => settings.resetCompat());
   handle('settings:encryption', () => safeStorage.isEncryptionAvailable());
+
+  // ----- app icon -----
+  handle('icon:get', () => customIcon()?.toDataURL() || null);
+  handle('icon:choose', async () => {
+    const r = await dialog.showOpenDialog(win, {
+      title: L('选择一张图片作为应用图标'),
+      properties: ['openFile'],
+      filters: [{ name: L('图片'), extensions: ['png', 'jpg', 'jpeg', 'bmp', 'gif', 'webp', 'ico'] }],
+    });
+    if (r.canceled || !r.filePaths[0]) return null;
+    const img = nativeImage.createFromPath(r.filePaths[0]);
+    if (img.isEmpty()) throw new Error(L('无法读取这张图片'));
+    const art = normalizedArtwork(img);
+    fs.writeFileSync(iconFile(), art.toPNG());
+    applyWindowIcon();
+    return art.toDataURL();
+  });
+  handle('icon:reset', () => {
+    fs.rmSync(iconFile(), { force: true });
+    applyWindowIcon();
+    return null;
+  });
 
   // ----- library -----
   handle('lib:list', () => library.list());
@@ -134,6 +233,11 @@ function registerIPC() {
   handle('lib:saveCover', (id, base64) => library.saveCover(id, base64));
   handle('lib:create', (info) => library.create(info));
   handle('lib:attachSrt', (id, srtPath) => library.attachSRT(id, srtPath));
+  handle('lib:folders', () => library.folders());
+  handle('lib:createFolder', (name) => library.createFolder(name));
+  handle('lib:renameFolder', (id, name) => library.renameFolder(id, name));
+  handle('lib:deleteFolder', (id) => library.deleteFolder(id));
+  handle('lib:move', (ids, folderID) => library.move(ids, folderID));
 
   // ----- files -----
   handle('fs:expand', (paths) => expandPaths(paths));
@@ -141,31 +245,35 @@ function registerIPC() {
   handle('fs:fileURL', (p) => pathToFileURL(p).href);
   handle('fs:reveal', (p) => {
     if (p && fs.existsSync(p)) shell.showItemInFolder(p);
-    else throw new Error('找不到该文件，可能已被移动或删除');
+    else throw new Error(L('找不到该文件，可能已被移动或删除'));
   });
 
   // ----- dialogs -----
-  const mediaFilter = { name: '音视频', extensions: MEDIA_EXT };
-  const srtFilter = { name: 'SRT 字幕', extensions: SUB_EXT };
+  const mediaFilter = () => ({ name: L('音视频'), extensions: MEDIA_EXT });
+  const srtFilter = () => ({ name: L('SRT 字幕'), extensions: SUB_EXT });
   handle('dialog:openFiles', async () => {
-    const r = await dialog.showOpenDialog(win, { properties: ['openFile', 'multiSelections'], filters: [{ name: '音视频与字幕', extensions: [...MEDIA_EXT, ...SUB_EXT] }] });
+    const r = await dialog.showOpenDialog(win, {
+      title: L('选择音视频文件，可同时选择对应的 SRT 字幕'),
+      properties: ['openFile', 'multiSelections'],
+      filters: [{ name: L('音视频与字幕'), extensions: [...MEDIA_EXT, ...SUB_EXT] }],
+    });
     return r.canceled ? [] : r.filePaths;
   });
   handle('dialog:openFolder', async () => {
-    const r = await dialog.showOpenDialog(win, { properties: ['openDirectory'], buttonLabel: '导入' });
+    const r = await dialog.showOpenDialog(win, { title: L('选择包含音视频与 SRT 字幕的文件夹'), properties: ['openDirectory'], buttonLabel: L('导入') });
     return r.canceled ? null : r.filePaths[0];
   });
   handle('dialog:openMedia', async () => {
-    const r = await dialog.showOpenDialog(win, { properties: ['openFile'], filters: [mediaFilter] });
+    const r = await dialog.showOpenDialog(win, { title: L('选择音视频文件（mp4 / mov / m4v / mp3 / m4a / wav / aac）'), properties: ['openFile'], filters: [mediaFilter()] });
     return r.canceled ? null : r.filePaths[0];
   });
   handle('dialog:openSrt', async () => {
-    const r = await dialog.showOpenDialog(win, { properties: ['openFile'], filters: [srtFilter] });
+    const r = await dialog.showOpenDialog(win, { title: L('选择 SRT 字幕文件'), properties: ['openFile'], filters: [srtFilter()] });
     return r.canceled ? null : r.filePaths[0];
   });
-  handle('dialog:confirm', async ({ title, message, ok = '确定', cancel = '取消', destructive = false }) => {
+  handle('dialog:confirm', async ({ title, message, ok = L('确定'), cancel = L('取消'), destructive = false }) => {
     if (E2E) return true;
-    const r = await dialog.showMessageBox(win, { type: destructive ? 'warning' : 'question', title: '本地妙记', message: title, detail: message, buttons: [ok, cancel], defaultId: 0, cancelId: 1, noLink: true });
+    const r = await dialog.showMessageBox(win, { type: destructive ? 'warning' : 'question', title: L('培根妙记'), message: title, detail: message, buttons: [ok, cancel], defaultId: 0, cancelId: 1, noLink: true });
     return r.response === 0;
   });
   handle('dialog:alert', async ({ title, message, error = false }) => {
@@ -173,10 +281,11 @@ function registerIPC() {
       console.log(`[alert] ${title}: ${message}`);
       return;
     }
-    await dialog.showMessageBox(win, { type: error ? 'error' : 'info', title: '本地妙记', message: title, detail: message, buttons: ['好'], noLink: true });
+    await dialog.showMessageBox(win, { type: error ? 'error' : 'info', title: L('培根妙记'), message: title, detail: message, buttons: [L('好')], noLink: true });
   });
   handle('dialog:saveText', async ({ text, name, ext }) => {
-    const safe = (name || '妙记').replace(/[\\/:*?"<>|]/g, '_').slice(0, 120) || '妙记';
+    const fallback = L('妙记');
+    const safe = (name || fallback).replace(/[\\/:*?"<>|]/g, '_').slice(0, 120) || fallback;
     const r = await dialog.showSaveDialog(win, { defaultPath: `${safe}.${ext}`, filters: [{ name: ext.toUpperCase(), extensions: [ext] }] });
     if (r.canceled || !r.filePath) return false;
     fs.writeFileSync(r.filePath, '﻿'.repeat(ext === 'txt' ? 1 : 0) + text, 'utf8');
@@ -226,6 +335,7 @@ app.whenReady().then(() => {
   const userData = app.getPath('userData');
   library = new Library(path.join(userData, 'minutes'));
   settings = new SettingsStore(path.join(userData, 'settings.json'), safeStorage);
+  applyLanguage();
   registerIPC();
   createWindow();
 });

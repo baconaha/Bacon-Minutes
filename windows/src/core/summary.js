@@ -1,7 +1,8 @@
 // §7.5 summary generation: input lines, chunking, JSON extraction, validation.
 import { SYSTEM_PROMPT, JSON_RETRY_SUFFIX, userPrompt, mergePrompt } from './prompts.js';
 import { errors } from './llm.js';
-import { timestamp, usesHours, durationCN, parseTimestamp } from './time.js';
+import { timestamp, usesHours, duration, parseTimestamp } from './time.js';
+import { L } from './i18n.js';
 import { paragraphText, speakerName } from './paragraphs.js';
 import { fold, containsFolded } from './text.js';
 
@@ -140,7 +141,7 @@ export function validateSummary(raw, input) {
     chapters[0].time = starts[0];
     chapters = dedupeByTime(chapters);
   }
-  const todos = raw.todos.map((t) => ({ content: t.content, owner: t.owner || '未指定', time: snap(t.time, starts) }));
+  const todos = raw.todos.map((t) => ({ content: t.content, owner: t.owner || L('未指定'), time: snap(t.time, starts) }));
   const seen = new Set();
   const keywords = [];
   for (const k of raw.keywords) {
@@ -163,8 +164,9 @@ export function validateSummary(raw, input) {
  * Returns the validated draft.
  */
 export async function generateSummary({ client, input, config, apiKey, signal, progress = () => {} }) {
-  if (!input.lines.length) throw errors.notConfigured('文字记录为空，无法生成纪要');
-  const durationText = durationCN(input.duration);
+  if (!input.lines.length) throw errors.notConfigured(L('文字记录为空，无法生成纪要'));
+  // The prompt is Chinese whatever the UI language is.
+  const durationText = duration(input.duration, 'zh-Hans');
   const chunks = chunkLines(input.lines, config.maxInputChars);
 
   const callJSON = async (user) => {

@@ -1,4 +1,5 @@
-import { srtTimestamp, timestamp, createdDate, durationCN, usesHours } from './time.js';
+import { srtTimestamp, timestamp, createdDate, duration, usesHours } from './time.js';
+import { L, listSeparator } from './i18n.js';
 import { paragraphText, speakerName } from './paragraphs.js';
 
 export function exportSRT(transcript) {
@@ -15,26 +16,26 @@ export function exportTXT(transcript, paragraphs, insertComma, hours) {
 
 export function summaryMarkdown(s, hours, level = 2) {
   const h = '#'.repeat(level);
-  let out = `${h} 会议纪要\n\n`;
+  let out = `${h} ${L('会议纪要')}\n\n`;
   if (s.overview) out += s.overview + '\n\n';
-  for (const kp of s.keyPoints) out += `- **${kp.title}**：${kp.content}\n`;
+  for (const kp of s.keyPoints) out += `- **${kp.title}**${L('：')}${kp.content}\n`;
   if (s.keyPoints.length) out += '\n';
-  out += `${h}# 待办\n\n`;
-  if (!s.todos.length) out += '本场会议无待办内容\n\n';
+  out += `${h}# ${L('待办')}\n\n`;
+  if (!s.todos.length) out += L('本场会议无待办内容') + '\n\n';
   else out += s.todos.map((t) => `- [ ] ${t.content} · ${t.owner} · ${timestamp(t.time, hours)}`).join('\n') + '\n\n';
-  out += `${h} 章节纪要\n\n`;
+  out += `${h} ${L('章节纪要')}\n\n`;
   for (const c of s.chapters) out += `${h}# ${timestamp(c.time, hours)} ${c.title}\n\n${c.summary}\n\n`;
-  if (s.keywords.length) out += `${h} 关键词\n\n${s.keywords.join('、')}\n\n`;
-  out += '> 智能纪要由 AI 生成，请谨慎使用\n';
+  if (s.keywords.length) out += `${h} ${L('关键词')}\n\n${s.keywords.join(listSeparator())}\n\n`;
+  out += '> ' + L('智能纪要由 AI 生成，请谨慎使用') + '\n';
   return out;
 }
 
-export function exportMarkdown({ title, createdAt, duration, summary, transcript, paragraphs, insertComma }) {
-  const hours = usesHours(duration);
-  let out = `# ${title}\n\n${createdDate(createdAt)} · ${durationCN(duration)}\n\n`;
-  if (summary) out += '## 智能纪要\n\n' + summaryMarkdown(summary, hours, 3) + '\n';
+export function exportMarkdown({ title, createdAt, duration: totalSeconds, summary, transcript, paragraphs, insertComma }) {
+  const hours = usesHours(totalSeconds);
+  let out = `# ${title}\n\n${createdDate(createdAt)} · ${duration(totalSeconds)}\n\n`;
+  if (summary) out += `## ${L('智能纪要')}\n\n` + summaryMarkdown(summary, hours, 3) + '\n';
   if (transcript) {
-    out += '## 文字记录\n\n';
+    out += `## ${L('文字记录')}\n\n`;
     for (const p of paragraphs) {
       out += `**${speakerName(transcript, p.speakerID)}** \`${timestamp(p.start, hours)}\`\n\n${paragraphText(p, transcript.cues, insertComma)}\n\n`;
     }

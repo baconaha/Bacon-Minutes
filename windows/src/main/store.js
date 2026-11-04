@@ -1,4 +1,5 @@
 // On-disk library: <userData>/minutes/<uuid>/{meta.json, transcript.json, summary.json, source.srt, thumbs/cover.jpg}
+// and <userData>/folders.json. Same layout as the Mac app.
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -6,8 +7,15 @@ import { pathToFileURL } from 'node:url';
 import { parseSRT } from '../core/srt.js';
 import { fold } from '../core/text.js';
 import { baseName } from '../core/pairing.js';
+import { L } from '../core/i18n.js';
 
-export const TRASH_DAYS = 30;
+function fileSize(p) {
+  try {
+    return fs.statSync(p).size;
+  } catch {
+    return null;
+  }
+}
 
 function readJSON(file) {
   try {
@@ -27,8 +35,44 @@ function writeJSON(file, value) {
 export class Library {
   constructor(root) {
     this.root = root;
+    this.foldersFile = path.join(path.dirname(root), 'folders.json');
     this.searchCache = new Map();
     fs.mkdirSync(root, { recursive: true });
+  }
+
+  // ----- folders -----
+
+  folders() {
+    return readJSON(this.foldersFile) || [];
+  }
+
+  saveFolders(list) {
+    writeJSON(this.foldersFile, list);
+    return list;
+  }
+
+  createFolder(name) {
+    const f = { id: randomUUID(), name, createdAt: new Date().toISOString() };
+    this.saveFolders([...this.folders(), f]);
+    return f;
+  }
+
+  renameFolder(id, name) {
+    return this.saveFolders(this.folders().map((f) => (f.id === id ? { ...f, name } : f)));
+  }
+
+  /** Removes the folder; its minutes stay in the library, just unfiled. */
+  deleteFolder(id) {
+    this.saveFolders(this.folders().filter((f) => f.id !== id));
+    const changed = [];
+    for (const m of this.list()) {
+      if (m.folderID === id) changed.push(this.update(m.id, (x) => (x.folderID = null)));
+    }
+    return changed;
+  }
+
+  move(ids, folderID) {
+    return ids.map((id) => this.update(id, (m) => (m.folderID = folderID || null)));
   }
 
   folder(id) {
@@ -49,10 +93,9 @@ export class Library {
     return { ...m, coverURL: this.coverURL(m.id), mediaExists: !!m.mediaPath && fs.existsSync(m.mediaPath) };
   }
 
-  /** All minutes; trash older than 30 days is deleted on the way. */
+  /** All minutes. Trash is kept until the user deletes it. */
   list() {
     const out = [];
-    const cutoff = Date.now() - TRASH_DAYS * 86400000;
     let dirs = [];
     try {
       dirs = fs.readdirSync(this.root, { withFileTypes: true }).filter((d) => d.isDirectory() && !d.name.startsWith('.'));
@@ -62,9 +105,13 @@ export class Library {
     for (const d of dirs) {
       const meta = readJSON(path.join(this.root, d.name, 'meta.json'));
       if (!meta?.id) continue;
-      if (meta.deletedAt && Date.parse(meta.deletedAt) < cutoff) {
-        fs.rmSync(path.join(this.root, d.name), { recursive: true, force: true });
-        continue;
+      // Minutes imported before sizes were recorded get their media size measured once.
+      if (meta.mediaSize == null && meta.mediaPath) {
+        const size = fileSize(meta.mediaPath);
+        if (size != null) {
+          meta.mediaSize = size;
+          writeJSON(path.join(this.root, d.name, 'meta.json'), meta);
+        }
       }
       out.push(this.withExtras(meta));
     }
@@ -79,18 +126,19 @@ export class Library {
     const clean = { ...meta };
     delete clean.coverURL;
     delete clean.mediaExists;
+    if (clean.mediaPath && clean.mediaSize == null) clean.mediaSize = fileSize(clean.mediaPath);
     writeJSON(path.join(this.folder(meta.id), 'meta.json'), clean);
     return this.withExtras(clean);
   }
 
   update(id, change) {
     const m = this.get(id);
-    if (!m) throw new Error('找不到该妙记');
+    if (!m) throw new Error(L('找不到该妙记'));
     change(m);
     return this.save(m);
   }
 
-  create({ mediaPath, title, createdAt, duration, isAudioOnly }) {
+  create({ mediaPath, title, createdAt, duration, isAudioOnly, folderID }) {
     const id = randomUUID();
     return this.save({
       id,
@@ -108,6 +156,8 @@ export class Library {
       hasSummary: false,
       deletedAt: null,
       lastPlaybackPosition: 0,
+      folderID: folderID || null,
+      mediaSize: fileSize(mediaPath),
     });
   }
 

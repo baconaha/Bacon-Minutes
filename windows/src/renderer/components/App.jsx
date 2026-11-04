@@ -1,8 +1,11 @@
 import { useEffect, useState } from 'preact/hooks';
 import {
   route, detail, toast, importDialog, settingsOpen, renameTarget, minutes, selection, section,
-  loadLibrary, loadSettings, goBack, moveToTrash, renameMinute, listSearchFocus, call, lm,
+  loadLibrary, loadSettings, goBack, requestMoveToTrash, renameMinute, listSearchFocus, call, lm,
+  isDialogOpen, confirmRequest, moveTarget, folderInfoTarget, currentFolderID, folderByID,
 } from '../state.js';
+import { L } from '../../core/i18n.js';
+import { ConfirmDialog, MoveToFolderDialog, FolderInfoDialog } from './Dialogs.jsx';
 import { importPaths, importFolder, pathsFromDrop } from '../importer.js';
 import { ListPage } from './ListPage.jsx';
 import { DetailPage } from './DetailPage.jsx';
@@ -19,7 +22,7 @@ function isEditable(el) {
 
 /** §11 shortcuts, Windows flavour (Ctrl instead of ⌘). */
 function onKeyDown(e) {
-  if (importDialog.value || settingsOpen.value || renameTarget.value) return;
+  if (importDialog.value || settingsOpen.value || renameTarget.value || isDialogOpen.value) return;
   if (document.querySelector('.modal-backdrop')) return;
   const editing = isEditable(document.activeElement);
   const ctrl = e.ctrlKey || e.metaKey;
@@ -88,7 +91,7 @@ function onKeyDown(e) {
   }
   if (!editing && (e.key === 'Delete' || (ctrl && e.key === 'Backspace')) && selection.value.size && section.value !== 'trash') {
     e.preventDefault();
-    moveToTrash([...selection.value]);
+    requestMoveToTrash([...selection.value]);
   }
 }
 
@@ -100,6 +103,12 @@ function useTitleBarColor() {
     const symbolColor = css.getPropertyValue('--text').trim() || '#1f2329';
     call('win:titleBar', { color, symbolColor }).catch(() => {});
   }, [isDetail]);
+}
+
+function dropText(isDetail) {
+  if (isDetail) return L('松开以导入（SRT 将导入到当前妙记）');
+  const f = folderByID(currentFolderID.value);
+  return f ? L('松开以导入到「{0}」', f.name) : L('松开以导入');
 }
 
 export function App() {
@@ -139,7 +148,7 @@ export function App() {
   return (
     <div style={{ height: '100%' }} onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}>
       {isDetail ? <DetailPage model={detail.value} key={detail.value.minute.value.id} /> : <ListPage />}
-      {dropping && !importDialog.value && <div class="drop-overlay">{isDetail ? '松开以导入（SRT 会导入到当前妙记）' : '松开以导入'}</div>}
+      {dropping && !importDialog.value && <div class="drop-overlay">{dropText(isDetail)}</div>}
       {toast.value && (
         <div class="toast">
           <Icon name="check" size={16} style={{ color: 'var(--brand)' }} />
@@ -148,9 +157,12 @@ export function App() {
       )}
       {importDialog.value && <ImportDialog />}
       {settingsOpen.value && <SettingsModal />}
+      {confirmRequest.value && <ConfirmDialog key={confirmRequest.value.title} />}
+      {moveTarget.value && <MoveToFolderDialog />}
+      {folderInfoTarget.value && <FolderInfoDialog key={folderInfoTarget.value} />}
       {target && (
         <PromptDialog
-          title="重命名"
+          title={L('重命名')}
           initial={target.title}
           onCancel={() => (renameTarget.value = null)}
           onDone={(title) => {

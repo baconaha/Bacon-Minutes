@@ -29,4 +29,10 @@ run smoke.cjs
 run interact.cjs
 run stage3.cjs
 THEME=dark run stage3.cjs
-echo "screenshots in $(pwd)/$WORK/shots"
+# The mock server counts calls per run; restart it so parity.cjs starts clean.
+kill $MOCK_PID 2>/dev/null || true
+node mock-llm.cjs > "$WORK/mock.log" 2>&1 &
+MOCK_PID=$!
+sleep 1
+run parity.cjs
+echo "screenshots in $(pwd)/$WORK/shots and $(pwd)/$WORK/parity"

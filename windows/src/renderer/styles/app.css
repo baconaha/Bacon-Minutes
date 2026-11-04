@@ -199,6 +199,10 @@ textarea {
   color: var(--brand);
 }
 
+.btn-icon.active-bg {
+  background: var(--search-fill);
+}
+
 .tag {
   display: inline-block;
   font-size: 11px;
@@ -216,12 +220,8 @@ textarea {
 }
 
 .logo {
-  border-radius: 25%;
-  background: linear-gradient(135deg, #3370ff, #7b9dff);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: #fff;
+  display: inline-block;
+  object-fit: cover;
   flex: none;
 }
 
@@ -301,16 +301,72 @@ textarea {
   display: inline-flex;
 }
 
+/* Dropdown cards flip down from their button (or up, above it) and fold away on close. */
 .menu {
   position: fixed;
   min-width: 160px;
+  max-height: 360px;
+  overflow-y: auto;
   background: var(--card);
   border-radius: 8px;
-  box-shadow: var(--shadow);
-  border: 1px solid var(--divider);
+  box-shadow: 0 4px 24px rgba(31, 35, 41, 0.14);
+  border: 0.5px solid var(--divider);
   padding: 4px;
   z-index: 900;
-  animation: toast-in 0.12s ease-out;
+  transform-origin: top center;
+}
+
+.menu.from-top {
+  animation: menu-flip-down 0.3s cubic-bezier(0.2, 0.9, 0.3, 1.08);
+}
+
+.menu.from-bottom {
+  transform-origin: bottom center;
+  animation: menu-flip-up 0.3s cubic-bezier(0.2, 0.9, 0.3, 1.08);
+}
+
+.menu.closing {
+  animation: menu-fold-top 0.12s ease-in forwards;
+  pointer-events: none;
+}
+
+.menu.from-bottom.closing {
+  animation-name: menu-fold-bottom;
+}
+
+@keyframes menu-flip-down {
+  from {
+    transform: perspective(600px) rotateX(-78deg) scale(0.97);
+    opacity: 0;
+  }
+}
+
+@keyframes menu-flip-up {
+  from {
+    transform: perspective(600px) rotateX(78deg) scale(0.97);
+    opacity: 0;
+  }
+}
+
+@keyframes menu-fold-top {
+  to {
+    transform: perspective(600px) rotateX(-78deg) scale(0.97);
+    opacity: 0;
+  }
+}
+
+@keyframes menu-fold-bottom {
+  to {
+    transform: perspective(600px) rotateX(78deg) scale(0.97);
+    opacity: 0;
+  }
+}
+
+.menu.dark {
+  background: rgba(28, 28, 28, 0.96);
+  border-color: rgba(255, 255, 255, 0.08);
+  color: #fff;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.35);
 }
 
 .menu-item {
@@ -318,21 +374,83 @@ textarea {
   align-items: center;
   gap: 8px;
   width: 100%;
+  height: 34px;
   text-align: left;
-  padding: 7px 10px;
+  padding: 0 12px;
   border-radius: 6px;
   white-space: nowrap;
+  font-size: 14px;
+  transition: background 0.1s;
+}
+
+.menu-item .mi-label {
+  flex: 1;
+}
+
+.menu-item .mi-icon {
+  color: var(--text-2);
+}
+
+.menu-item .mi-check {
+  margin-left: 16px;
 }
 
 .menu-item:hover:not(:disabled) {
-  background: var(--row-hover);
+  background: var(--search-fill);
+}
+
+.menu.dark .menu-item:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.menu.dark .menu-item .mi-icon {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.menu.dark .menu-item.selected {
+  color: #6b97ff;
+}
+
+.menu.dark .menu-sep {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.mini-switch {
+  width: 28px;
+  height: 16px;
+  border-radius: 8px;
+  background: rgba(128, 128, 128, 0.45);
+  position: relative;
+  margin-left: 16px;
+  transition: background 0.15s;
+}
+
+.mini-switch::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.15s;
+}
+
+.mini-switch.on {
+  background: var(--brand);
+}
+
+.mini-switch.on::after {
+  transform: translateX(12px);
 }
 
 .menu-item.selected {
   color: var(--brand);
 }
 
-.menu-item.danger {
+.menu-item.danger,
+.menu-item.danger .mi-icon {
   color: var(--error);
 }
 
@@ -395,6 +513,11 @@ select.field {
 
 .underline-tab.small {
   font-size: 14px;
+}
+
+/* Hover turns the title blue; the pointer is the hand (buttons use cursor: pointer). */
+.underline-tab:hover {
+  color: var(--brand);
 }
 
 .underline-tab.selected {
@@ -476,7 +599,11 @@ select.field {
   border-right: 1px solid var(--divider);
   display: flex;
   flex-direction: column;
-  padding: 0 12px 16px;
+  padding: 0 12px 14px;
+}
+
+.sidebar .nav-item:last-child {
+  margin-bottom: 0;
 }
 
 .sidebar-head {
@@ -507,6 +634,119 @@ select.field {
 .nav-item.selected {
   background: var(--cur-cue);
   color: var(--brand);
+}
+
+.folders-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 4px 2px 12px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+/* On the gray sidebar the usual hover fill is barely visible; use the card color. */
+.btn-icon.sidebar-plus {
+  width: 22px;
+  height: 22px;
+  color: var(--text-2);
+  transition: background 0.12s;
+}
+
+.btn-icon.sidebar-plus:hover {
+  background: var(--card);
+}
+
+.folders-scroll {
+  flex: 1;
+  min-height: 40px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 4px;
+}
+
+.folder-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 34px;
+  flex: none;
+  padding: 0 6px 0 12px;
+  border-radius: 6px;
+  font-size: 14px;
+  cursor: pointer;
+  border: 1.5px solid transparent;
+}
+
+.folder-row:hover {
+  background: var(--row-hover);
+}
+
+.folder-row.selected {
+  background: var(--cur-cue);
+  color: var(--brand);
+}
+
+.folder-row.drop {
+  background: var(--cur-cue);
+  border-color: var(--brand);
+}
+
+.folder-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.folder-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 14px;
+  padding: 0;
+}
+
+.folder-count {
+  font-size: 12px;
+  color: var(--text-3);
+  padding-right: 6px;
+}
+
+.lib-stats {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--card) 70%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.lib-stats .ls-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.lib-stats .k {
+  color: var(--text-3);
+}
+
+.lib-stats .v {
+  color: var(--text-2);
+}
+
+.sidebar-sep {
+  height: 1px;
+  background: var(--divider);
+  margin: 8px 0;
 }
 
 .list-main {
@@ -567,6 +807,21 @@ select.field {
   font-size: 12px;
   color: var(--text-3);
   border-bottom: 1px solid var(--divider);
+  white-space: nowrap;
+}
+
+.selection-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.sort-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: inherit;
 }
 
 .col-file {
@@ -585,20 +840,16 @@ select.field {
 }
 
 .col-deleted {
-  width: 160px;
-  flex: none;
-}
-
-.col-left {
-  width: 90px;
+  width: 190px;
   flex: none;
 }
 
 .col-trash-ops {
-  width: 140px;
+  width: 220px;
   flex: none;
   display: flex;
   gap: 12px;
+  white-space: nowrap;
 }
 
 .list-scroll {
@@ -678,6 +929,20 @@ select.field {
   font-size: 12px;
   color: var(--text-3);
   margin-top: 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.row-folder {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 /* ---------- detail page (§1) ---------- */
@@ -686,6 +951,24 @@ select.field {
   display: flex;
   flex-direction: column;
   height: 100%;
+}
+
+/* Opening a minute: a short fade and settle; the page already has its content. */
+.detail-enter {
+  animation: detail-in 0.22s ease-out;
+}
+
+@keyframes detail-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.985);
+  }
+}
+
+.back-button {
+  width: 30px;
+  height: 30px;
+  color: var(--text);
 }
 
 .topbar {
@@ -728,14 +1011,43 @@ select.field {
   background: var(--divider);
 }
 
-.title-input {
+/* Google Docs style title: I-beam and a light outline on hover, blue outline while editing. */
+.title-edit {
+  position: relative;
+  display: inline-flex;
+  margin-left: -5px;
+}
+
+.title-measure {
+  position: absolute;
+  visibility: hidden;
+  white-space: pre;
   font-size: 16px;
   font-weight: 600;
-  border: none;
-  border-bottom: 1px solid var(--brand);
+}
+
+.title-input {
+  font: inherit;
+  font-size: 16px;
+  font-weight: 600;
+  height: 26px;
+  padding: 0 5px;
+  border: 1px solid transparent;
+  border-radius: 5px;
   outline: none;
   background: transparent;
-  width: 420px;
+  box-sizing: content-box;
+  text-overflow: ellipsis;
+  cursor: text;
+  transition: border-color 0.12s;
+}
+
+.title-input:hover {
+  border-color: var(--divider);
+}
+
+.title-edit.editing .title-input {
+  border: 1.5px solid var(--brand);
 }
 
 .columns {
@@ -834,6 +1146,12 @@ select.field {
   height: 100%;
   object-fit: contain;
   background: #000;
+  opacity: 0;
+  transition: opacity 0.3s ease-out;
+}
+
+.player video.shown {
+  opacity: 1;
 }
 
 .player:fullscreen {
@@ -979,7 +1297,8 @@ select.field {
   font-weight: 600;
 }
 
-.pbtn:hover {
+.pbtn:hover,
+.pbtn.lit {
   background: rgba(255, 255, 255, 0.15);
 }
 
@@ -1379,6 +1698,12 @@ select.field {
   position: relative;
   outline: none;
   user-select: text;
+  opacity: 0;
+  transition: opacity 0.2s ease-out;
+}
+
+.tx-scroll.revealed {
+  opacity: 1;
 }
 
 .para {
@@ -1420,7 +1745,8 @@ select.field {
   line-height: 26px;
   color: var(--text);
   word-break: break-word;
-  cursor: text;
+  /* Sentences are click targets, so the pointer is a hand rather than the text I-beam. */
+  cursor: pointer;
 }
 
 .para-body .cue.cur {
@@ -1647,14 +1973,10 @@ select.field {
   overflow: hidden;
 }
 
+/* Shown whenever the summary is cut off (not only on hover), so hovering never moves text. */
 .chapter .expand {
   font-size: 12px;
-  visibility: hidden;
-}
-
-.chapter:hover .expand,
-.chapter .expand.shown {
-  visibility: visible;
+  margin-top: 2px;
 }
 
 .banner {
@@ -1784,4 +2106,306 @@ select.field {
   gap: 8px;
   margin: 8px 0;
   cursor: pointer;
+}
+
+/* ---------- languages ---------- */
+
+html:lang(ja) body {
+  font-family: 'Yu Gothic UI', 'Meiryo UI', 'Segoe UI', 'Microsoft YaHei UI', system-ui, sans-serif;
+}
+
+html:lang(ko) body {
+  font-family: 'Malgun Gothic', 'Segoe UI', 'Microsoft YaHei UI', system-ui, sans-serif;
+}
+
+html:lang(en) body,
+html:lang(es) body,
+html:lang(vi) body,
+html:lang(fr) body,
+html:lang(pt) body,
+html:lang(ru) body {
+  font-family: 'Segoe UI', 'Microsoft YaHei UI', 'Microsoft YaHei', system-ui, sans-serif;
+}
+
+/* ---------- select field ---------- */
+
+.select-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 6px;
+  border: 1px solid var(--divider);
+  background: var(--card);
+  font-size: 13px;
+  text-align: left;
+  transition: border-color 0.12s;
+}
+
+.select-field.open,
+.select-field:hover {
+  border-color: var(--brand);
+}
+
+.select-field .sf-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.select-field .sf-chevron {
+  color: var(--text-3);
+  transition: transform 0.15s;
+}
+
+.select-field.open .sf-chevron {
+  transform: rotate(180deg);
+}
+
+.btn-icon.chevron-btn {
+  width: 30px;
+  height: 30px;
+}
+
+/* ---------- flip-down dialogs ---------- */
+
+.flip-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 950;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.32);
+  animation: backdrop-in 0.2s ease-out;
+}
+
+.flip-backdrop.closing {
+  animation: backdrop-out 0.15s ease-in forwards;
+}
+
+.flip-card {
+  background: var(--card);
+  border-radius: 12px;
+  padding: 26px 26px 22px 28px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18);
+  transform-origin: top center;
+  animation: dialog-flip-in 0.36s cubic-bezier(0.2, 0.9, 0.3, 1.12);
+}
+
+.flip-backdrop.closing .flip-card {
+  animation: dialog-fold 0.14s ease-in forwards;
+}
+
+@keyframes backdrop-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes backdrop-out {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes dialog-flip-in {
+  from {
+    transform: perspective(700px) rotateX(-62deg) translateY(-10px) scale(0.96);
+    opacity: 0;
+  }
+}
+
+@keyframes dialog-fold {
+  to {
+    transform: perspective(700px) rotateX(-62deg) translateY(-10px) scale(0.96);
+    opacity: 0;
+  }
+}
+
+.confirm {
+  display: flex;
+  gap: 14px;
+}
+
+.confirm-mark {
+  width: 24px;
+  height: 24px;
+  flex: none;
+  margin-top: 1px;
+  border-radius: 50%;
+  background: #f08a24;
+  color: #fff;
+  font-weight: 900;
+  font-size: 15px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.confirm-text {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.confirm-title,
+.dialog-title {
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text);
+  word-break: break-word;
+}
+
+.confirm-message {
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--text-2);
+}
+
+/* Bold, so first-time users see that their files are safe. */
+.confirm-emphasis {
+  font-size: 14px;
+  line-height: 1.55;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.dialog-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.btn-danger,
+.btn-cancel {
+  height: 34px;
+  min-width: 88px;
+  padding: 0 18px;
+  border-radius: 6px;
+  font-size: 14px;
+  transition: background 0.12s;
+}
+
+/* Red confirm button: lighter on hover. */
+.btn-danger {
+  background: #f54a45;
+  color: #fff;
+  font-weight: 500;
+}
+
+.btn-danger:hover {
+  background: #f77b76;
+}
+
+.btn-danger:active {
+  background: #d9403b;
+}
+
+/* White bordered cancel button: gray on hover. */
+.btn-cancel {
+  background: var(--card);
+  color: var(--text);
+  border: 1px solid var(--divider);
+}
+
+.btn-cancel:hover {
+  background: var(--search-fill);
+}
+
+.btn-cancel:active {
+  background: var(--divider);
+}
+
+.dialog-divider {
+  height: 1px;
+  background: var(--divider);
+  margin: 18px 0;
+}
+
+.dialog-info {
+  grid-template-columns: auto 1fr;
+  gap: 12px 24px;
+}
+
+.move-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 260px;
+  overflow-y: auto;
+  margin-top: 16px;
+}
+
+.move-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 36px;
+  padding: 0 12px;
+  border-radius: 6px;
+  font-size: 14px;
+  text-align: left;
+}
+
+.move-option .icon {
+  color: var(--text-2);
+}
+
+.move-option:hover {
+  background: var(--row-hover);
+}
+
+.move-option.selected,
+.move-option.selected .icon {
+  background: var(--cur-cue);
+  color: var(--brand);
+}
+
+.move-option .mo-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.move-option.selected .icon {
+  background: none;
+}
+
+/* ---------- settings sections ---------- */
+
+.set-section .section-title {
+  margin: 0 0 8px;
+  font-size: 13px;
+}
+
+.set-section + .set-section {
+  margin-top: 20px;
+}
+
+.set-card {
+  border: 1px solid var(--divider);
+  border-radius: 8px;
+  padding: 10px 14px;
+  background: var(--card);
+}
+
+.set-footer {
+  font-size: 11px;
+  color: var(--text-3);
+  margin-top: 6px;
+  line-height: 1.5;
+}
+
+.set-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }

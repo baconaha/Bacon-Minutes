@@ -1,5 +1,6 @@
 import { useState } from 'preact/hooks';
-import { importDialog, call } from '../state.js';
+import { importDialog, call, currentFolderID, folderByID } from '../state.js';
+import { L } from '../../core/i18n.js';
 import { importPaths, runImport, pathsFromDrop } from '../importer.js';
 import { isMedia, isSubtitle, baseName } from '../../core/pairing.js';
 import { Icon, Modal } from './ui.jsx';
@@ -7,7 +8,7 @@ import { Icon, Modal } from './ui.jsx';
 function Slot({ title, path, placeholder, onChange }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 12, height: 40, padding: '0 12px', borderRadius: 6, background: 'var(--search-fill)' }}>
-      <span style={{ width: 64, color: 'var(--text-3)' }}>{title}</span>
+      <span style={{ width: 80, color: 'var(--text-3)' }}>{title}</span>
       {path ? (
         <>
           <Icon name={isSubtitle(path) ? 'bubble' : 'film'} style={{ color: 'var(--brand)' }} />
@@ -19,7 +20,7 @@ function Slot({ title, path, placeholder, onChange }) {
         <span style={{ flex: 1, color: 'var(--text-3)' }}>{placeholder}</span>
       )}
       <button class="btn-link" onClick={onChange}>
-        {path ? '更换' : '选择'}
+        {path ? L('更换') : L('选择')}
       </button>
     </div>
   );
@@ -30,6 +31,7 @@ export function ImportDialog() {
   const draft = importDialog.value;
   const [over, setOver] = useState(false);
   const close = () => (importDialog.value = null);
+  const folder = folderByID(currentFolderID.value);
   const set = (patch) => (importDialog.value = { ...importDialog.value, ...patch });
 
   const accept = async (paths) => {
@@ -61,7 +63,10 @@ export function ImportDialog() {
   return (
     <Modal onClose={close} width={540}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <h2>导入音视频文件</h2>
+        <div>
+          <h2>{L('导入音视频文件')}</h2>
+          {folder && <div style={{ fontSize: 12, color: 'var(--text-2)', marginTop: 4 }}>{L('将导入到「{0}」', folder.name)}</div>}
+        </div>
         <button class="btn-icon" onClick={close}>
           <Icon name="close" />
         </button>
@@ -95,27 +100,27 @@ export function ImportDialog() {
       >
         <Icon name="docPlus" size={36} style={{ color: 'var(--brand)' }} />
         <div style={{ fontSize: 14, color: 'var(--text-2)' }}>
-          将文件拖拽至此区域或{' '}
+          {L('将文件拖拽至此区域或 ')}
           <button class="btn-link" style={{ fontSize: 14 }} onClick={choose}>
-            选择文件
+            {L('选择文件')}
           </button>
         </div>
-        <div style={{ fontSize: 12, color: 'var(--text-3)' }}>媒体：mp4 / mov / m4v / mp3 / m4a / wav / aac　字幕：srt</div>
+        <div style={{ fontSize: 12, color: 'var(--text-3)' }}>{L('媒体：mp4 / mov / m4v / mp3 / m4a / wav / aac　字幕：srt')}</div>
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         <Slot
-          title="媒体文件"
+          title={L('媒体文件')}
           path={draft.media}
-          placeholder="未选择（必选）"
+          placeholder={L('未选择（必选）')}
           onChange={async () => {
             const p = await call('dialog:openMedia');
             if (p && isMedia(p)) set({ media: p });
           }}
         />
         <Slot
-          title="字幕文件"
+          title={L('字幕文件')}
           path={draft.subtitle}
-          placeholder="未选择（可选，之后也能补导）"
+          placeholder={L('未选择（可选，之后也能补导）')}
           onChange={async () => {
             const p = await call('dialog:openSrt');
             if (p) set({ subtitle: p });
@@ -124,10 +129,10 @@ export function ImportDialog() {
       </div>
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: 20 }}>
         <button class="btn-secondary" onClick={close}>
-          取消
+          {L('取消')}
         </button>
         <button class="btn-primary" disabled={!draft.media} onClick={submit}>
-          导入
+          {L('导入')}
         </button>
       </div>
     </Modal>

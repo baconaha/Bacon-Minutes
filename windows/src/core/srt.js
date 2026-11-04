@@ -2,6 +2,8 @@
 // overlapping and very short cues.
 import { joinFragment } from './text.js';
 
+import { L } from './i18n.js';
+
 export const FALLBACK_SPEAKER = '说话人 1';
 export const SPEAKER_COLORS = ['#3370FF', '#F5A623', '#2EA121', '#7B61FF', '#F54A45', '#14A9D9', '#FF8800', '#D136D1'];
 
@@ -177,7 +179,7 @@ export function parseSRT(input) {
     raws.push(current);
   }
   if (raws.length === 0) {
-    throw new SRTParseError('文件中没有可识别的字幕条目（需要形如 00:00:01,000 --> 00:00:02,000 的时间行）');
+    throw new SRTParseError(L('文件中没有可识别的字幕条目（需要形如 00:00:01,000 --> 00:00:02,000 的时间行）'));
   }
 
   const pending = raws.map((r) => {
@@ -208,6 +210,12 @@ export function parseSRT(input) {
     }
     cues.push({ id: newIndex, start: p.start, end: p.end, text: p.text, speakerID });
   });
-  const speakers = speakerOrder.map((id, i) => ({ id, name: id, colorHex: speakerColor(i) }));
+  // Files without speaker prefixes get one speaker, named in the UI language.
+  const hasPrefixes = pending.some((p) => p.cand);
+  const speakers = speakerOrder.map((id, i) => ({
+    id,
+    name: id === FALLBACK_SPEAKER && !hasPrefixes ? L('说话人 {0}', 1) : id,
+    colorHex: speakerColor(i),
+  }));
   return { cues, speakers };
 }

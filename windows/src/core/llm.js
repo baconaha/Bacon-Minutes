@@ -1,3 +1,5 @@
+import { L } from './i18n.js';
+
 // §7 LLM client: OpenAI-compatible / Anthropic / Azure OpenAI, non-streaming,
 // with parameter downgrades on HTTP 400 (§7.4). `fetch` is injected (Electron net.fetch in the app).
 
@@ -24,11 +26,28 @@ export const PRESETS = [
   { id: 'custom', name: '自定义', protocol: 'openAI', baseURL: '', model: '' },
 ];
 
+/** `label` goes verbatim into the (Chinese) prompt; show `outputLanguageName(id)` in the UI. */
 export const OUTPUT_LANGUAGES = [
-  { id: 'followSource', name: '跟随原文' },
-  { id: 'simplifiedChinese', name: '简体中文' },
-  { id: 'english', name: 'English' },
+  { id: 'followSource', label: '跟随原文' },
+  { id: 'simplifiedChinese', label: '简体中文' },
+  { id: 'english', label: 'English' },
+  { id: 'japanese', label: '日本語' },
+  { id: 'korean', label: '한국어' },
+  { id: 'spanish', label: 'Español' },
+  { id: 'vietnamese', label: 'Tiếng Việt' },
+  { id: 'french', label: 'Français' },
+  { id: 'portuguese', label: 'Português' },
+  { id: 'russian', label: 'Русский' },
 ];
+
+export const outputLanguageName = (id) => {
+  const l = OUTPUT_LANGUAGES.find((x) => x.id === id) || OUTPUT_LANGUAGES[0];
+  return l.id === 'followSource' ? L('跟随原文') : l.label;
+};
+
+/** Preset and protocol names are Chinese keys; show them through L(). */
+export const presetName = (p) => L(p.name);
+export const protocolName = (id) => L(PROTOCOLS.find((p) => p.id === id)?.name || id);
 
 export const preset = (id) => PRESETS.find((p) => p.id === id);
 export const isLocalPreset = (id) => id === 'ollama' || id === 'lmstudio';
@@ -86,14 +105,14 @@ export class LLMError extends Error {
 const err = {
   notConfigured: (m) => new LLMError('notConfigured', m),
   invalidURL: (m) => new LLMError('invalidURL', m),
-  http: (status, message) => new LLMError('http', `HTTP ${status}：${message}`, { status, serverMessage: message }),
-  network: (m) => new LLMError('network', `网络错误：${m}`),
-  timeout: (s) => new LLMError('timeout', `请求超时（${Math.round(s)} 秒）。可在 API 设置 → 高级中调大「超时」。`),
-  empty: () => new LLMError('empty', '模型返回了空内容'),
-  truncated: () => new LLMError('truncated', '输出被截断：已达到「最大输出 tokens」上限。请在 API 设置 → 高级中调大该值后重试。'),
-  refusal: (cat) => new LLMError('refusal', cat ? `模型拒绝了该请求（类别：${cat}）` : '模型拒绝了该请求'),
-  invalidJSON: (snippet) => new LLMError('invalidJSON', `模型输出不是合法 JSON：${snippet}`),
-  cancelled: () => new LLMError('cancelled', '已取消'),
+  http: (status, message) => new LLMError('http', `HTTP ${status}${L('：')}${message}`, { status, serverMessage: message }),
+  network: (m) => new LLMError('network', L('网络错误：{0}', m)),
+  timeout: (s) => new LLMError('timeout', L('请求超时（{0} 秒）。可在 API 设置 → 高级中调大「超时」。', Math.round(s))),
+  empty: () => new LLMError('empty', L('模型返回了空内容')),
+  truncated: () => new LLMError('truncated', L('输出被截断：已达到「最大输出 tokens」上限。请在 API 设置 → 高级中调大该值后重试。')),
+  refusal: (cat) => new LLMError('refusal', cat ? L('模型拒绝了该请求（类别：{0}）', cat) : L('模型拒绝了该请求')),
+  invalidJSON: (snippet) => new LLMError('invalidJSON', L('模型输出不是合法 JSON：{0}', snippet)),
+  cancelled: () => new LLMError('cancelled', L('已取消')),
   unsupported: (m) => new LLMError('unsupported', m),
 };
 export const errors = err;
@@ -108,8 +127,8 @@ export function normalizedBase(raw) {
 
 export function endpoint(config) {
   const base = normalizedBase(config.baseURL);
-  if (!base) throw err.notConfigured('请先填写 Base URL');
-  if (/[{}]/.test(base)) throw err.invalidURL('请把 Base URL 中的 {resource} 等占位符替换为实际值');
+  if (!base) throw err.notConfigured(L('请先填写 Base URL'));
+  if (/[{}]/.test(base)) throw err.invalidURL(L('请把 Base URL 中的 {resource} 等占位符替换为实际值'));
   let url;
   if (config.protocol === 'openAI') {
     url = base.endsWith('/chat/completions') ? base : base + '/chat/completions';
@@ -117,7 +136,7 @@ export function endpoint(config) {
     url = base.endsWith('/v1/messages') ? base : base.endsWith('/v1') ? base + '/messages' : base + '/v1/messages';
   } else {
     const dep = config.model.trim();
-    if (!dep) throw err.notConfigured('请在「模型」中填写 Azure 部署名称');
+    if (!dep) throw err.notConfigured(L('请在「模型」中填写 Azure 部署名称'));
     const ver = config.azureAPIVersion?.trim() || '2024-10-21';
     url = `${base}/openai/deployments/${encodeURIComponent(dep)}/chat/completions?api-version=${encodeURIComponent(ver)}`;
   }
@@ -125,9 +144,9 @@ export function endpoint(config) {
   try {
     parsed = new URL(url);
   } catch {
-    throw err.invalidURL(`Base URL 无效：${base}`);
+    throw err.invalidURL(L('Base URL 无效：{0}', base));
   }
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') throw err.invalidURL(`Base URL 无效：${base}`);
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') throw err.invalidURL(L('Base URL 无效：{0}', base));
   return url;
 }
 
@@ -164,7 +183,7 @@ function headers(config, apiKey, includeBeta) {
 export function buildRequest(req, config, apiKey, flags = {}) {
   const url = endpoint(config);
   const model = config.model.trim();
-  if (config.protocol !== 'azure' && !model) throw err.notConfigured('请先填写模型名称');
+  if (config.protocol !== 'azure' && !model) throw err.notConfigured(L('请先填写模型名称'));
   const fallbacks = usesFallbacks(config, flags);
   const body = {};
   if (config.protocol === 'anthropic') {
@@ -241,7 +260,7 @@ export function errorMessage(text) {
     // not JSON
   }
   const raw = (text || '').slice(0, 500).trim();
-  return raw || '（服务端未返回内容）';
+  return raw || L('（服务端未返回内容）');
 }
 
 /** `{ text, truncated }` from a 2xx body. */
@@ -250,9 +269,9 @@ export function parseResponse(text, protocol) {
   try {
     obj = JSON.parse(text);
   } catch {
-    throw err.network(`无法解析服务端响应：${text.slice(0, 300)}`);
+    throw err.network(L('无法解析服务端响应：{0}', text.slice(0, 300)));
   }
-  if (obj && obj.error && obj.choices == null && obj.content == null) throw err.http(200, errorText(obj.error) || '未知错误');
+  if (obj && obj.error && obj.choices == null && obj.content == null) throw err.http(200, errorText(obj.error) || L('未知错误'));
   if (protocol === 'anthropic') {
     if (obj.stop_reason === 'refusal') throw err.refusal(obj.stop_details?.category);
     const out = (obj.content || []).filter((b) => b.type === 'text').map((b) => b.text || '').join('');
@@ -340,8 +359,8 @@ export class LLMClient {
 
   async listModels(config, apiKey) {
     const base = normalizedBase(config.baseURL);
-    if (!base) throw err.notConfigured('请先填写 Base URL');
-    if (config.protocol === 'azure') throw err.unsupported('Azure OpenAI 不支持获取模型列表，请在「模型」中填写部署名称');
+    if (!base) throw err.notConfigured(L('请先填写 Base URL'));
+    if (config.protocol === 'azure') throw err.unsupported(L('Azure OpenAI 不支持获取模型列表，请在「模型」中填写部署名称'));
     const get = async (url) => {
       const { status, text } = await this.send(url, { method: 'GET', headers: headers(config, apiKey, false) }, Math.min(config.timeout, 30));
       if (status < 200 || status >= 300) throw err.http(status, errorMessage(text));
@@ -360,6 +379,16 @@ export class LLMClient {
         after = page.lastID;
       }
     }
-    return [...new Set(ids)].sort();
+    return textModels([...new Set(ids)].sort());
   }
+}
+
+/**
+ * Drops models that cannot write a summary (embeddings, speech, images, moderation …), so the
+ * picker only lists usable ones. Returns the input unchanged if nothing would be left.
+ */
+export function textModels(ids) {
+  const excluded = ['embed', 'tts', 'whisper', 'transcribe', 'moderation', 'dall-e', 'sora', 'image', 'realtime', 'audio', 'deep-research', 'computer-use', 'davinci', 'babbage', 'rerank'];
+  const kept = ids.filter((id) => !excluded.some((x) => id.toLowerCase().includes(x)));
+  return kept.length ? kept : ids;
 }

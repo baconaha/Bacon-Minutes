@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { general, updateGeneral } from '../state.js';
 import { timestamp } from '../../core/time.js';
-import { Icon, Logo, Switch } from './ui.jsx';
+import { L } from '../../core/i18n.js';
+import { Icon, Logo, Menu } from './ui.jsx';
 
 const RATES = [3, 2, 1.5, 1.25, 1, 0.75, 0.5];
 const rateLabel = (r) => `${r}x`;
@@ -140,7 +141,8 @@ function VolumeControl({ model }) {
   const muted = model.muted.value || model.volume.value === 0;
   return (
     <span style={{ position: 'relative', display: 'inline-flex' }} onMouseEnter={enter} onMouseLeave={leave}>
-      <button class="pbtn" onClick={() => model.toggleMute()} title={muted ? '取消静音' : '静音'}>
+      {/* Highlighted like the other buttons, and kept lit while the slider is open. */}
+      <button class={`pbtn ${open ? 'lit' : ''}`} onClick={() => model.toggleMute()} title={muted ? L('取消静音') : L('静音')}>
         <Icon name={muted ? 'mute' : 'volume'} />
       </button>
       {open && (
@@ -163,22 +165,6 @@ function VolumeControl({ model }) {
   );
 }
 
-function Popover({ open, setOpen, children, right = false }) {
-  const ref = useRef(null);
-  useEffect(() => {
-    if (!open) return;
-    const close = (e) => !ref.current?.parentElement?.contains(e.target) && setOpen(false);
-    window.addEventListener('mousedown', close, true);
-    return () => window.removeEventListener('mousedown', close, true);
-  }, [open]);
-  if (!open) return null;
-  return (
-    <div class="popup" ref={ref} style={right ? { right: 0 } : { left: '50%', transform: 'translateX(-50%)' }}>
-      {children}
-    </div>
-  );
-}
-
 function Controls({ model, hidden, setMenuOpen, setActive, fullscreen, toggleFullscreen }) {
   const [rateOpen, setRateOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
@@ -189,13 +175,13 @@ function Controls({ model, hidden, setMenuOpen, setActive, fullscreen, toggleFul
     <div class={`controls ${hidden ? 'hidden' : ''}`} onClick={(e) => e.stopPropagation()}>
       <ProgressBar model={model} setActive={setActive} />
       <div class="controls-row">
-        <button class="pbtn" onClick={() => model.togglePlay()} title={model.playing.value ? '暂停' : '播放'}>
+        <button class="pbtn" onClick={() => model.togglePlay()} title={model.playing.value ? L('暂停') : L('播放')}>
           <Icon name={model.playing.value ? 'pause' : 'play'} />
         </button>
-        <button class="pbtn" onClick={() => model.skip(-15)} title="后退 15 秒">
+        <button class="pbtn" onClick={() => model.skip(-15)} title={L('后退 15 秒')}>
           <Icon name="back15" size={20} />
         </button>
-        <button class="pbtn" onClick={() => model.skip(15)} title="前进 15 秒">
+        <button class="pbtn" onClick={() => model.skip(15)} title={L('前进 15 秒')}>
           <Icon name="fwd15" size={20} />
         </button>
         <VolumeControl model={model} />
@@ -203,38 +189,45 @@ function Controls({ model, hidden, setMenuOpen, setActive, fullscreen, toggleFul
           {timestamp(model.currentTime.value, hours)} / {timestamp(model.totalDuration, hours)}
         </span>
         <div style={{ flex: 1 }} />
-        <span style={{ position: 'relative', display: 'inline-flex' }}>
-          <button class="pbtn" style={{ minWidth: 44 }} onClick={() => setRateOpen(!rateOpen)} title="播放倍率">
-            {rateLabel(model.rate.value)}
-          </button>
-          <Popover open={rateOpen} setOpen={setRateOpen}>
-            {RATES.map((r) => (
-              <button
-                key={r}
-                class={`rate ${r === model.rate.value ? 'selected' : ''}`}
-                onClick={() => {
-                  model.setRate(r);
-                  updateGeneral({ playbackRate: r });
-                  setRateOpen(false);
-                }}
-              >
-                {rateLabel(r)}
-              </button>
-            ))}
-          </Popover>
-        </span>
-        <button class="pbtn" onClick={() => updateGeneral({ ccEnabled: !g.ccEnabled })} title={g.ccEnabled ? '关闭字幕' : '显示字幕'}>
+        <Menu
+          up
+          dark
+          align="center"
+          minWidth={96}
+          title={L('播放倍率')}
+          onOpenChange={setRateOpen}
+          items={RATES.map((r) => ({
+            label: rateLabel(r),
+            selected: r === model.rate.value,
+            onClick: () => {
+              model.setRate(r);
+              updateGeneral({ playbackRate: r });
+            },
+          }))}
+          trigger={({ open, toggle }) => (
+            <button class={`pbtn ${open ? 'lit' : ''}`} style={{ minWidth: 44, fontWeight: 600 }} onClick={toggle}>
+              {rateLabel(model.rate.value)}
+            </button>
+          )}
+        />
+        <button class="pbtn" onClick={() => updateGeneral({ ccEnabled: !g.ccEnabled })} title={g.ccEnabled ? L('关闭字幕') : L('显示字幕')}>
           <span class={`cc-badge ${g.ccEnabled ? 'on' : ''}`}>CC</span>
         </button>
-        <span style={{ position: 'relative', display: 'inline-flex' }}>
-          <button class="pbtn" onClick={() => setMoreOpen(!moreOpen)} title="更多">
-            <Icon name="more" />
-          </button>
-          <Popover open={moreOpen} setOpen={setMoreOpen} right>
-            <Switch on={g.skipBlankEnabled} label="跳过空白片段" onChange={(v) => updateGeneral({ skipBlankEnabled: v })} />
-          </Popover>
-        </span>
-        <button class="pbtn" onClick={toggleFullscreen} title={fullscreen ? '退出全屏' : '全屏'}>
+        <Menu
+          up
+          dark
+          align="right"
+          minWidth={180}
+          title={L('更多')}
+          onOpenChange={setMoreOpen}
+          items={[{ toggle: true, icon: 'skip', label: L('跳过空白片段'), on: g.skipBlankEnabled, onChange: (v) => updateGeneral({ skipBlankEnabled: v }) }]}
+          trigger={({ open, toggle }) => (
+            <button class={`pbtn ${open ? 'lit' : ''}`} onClick={toggle}>
+              <Icon name="more" />
+            </button>
+          )}
+        />
+        <button class="pbtn" onClick={toggleFullscreen} title={fullscreen ? L('退出全屏') : L('全屏')}>
           <Icon name={fullscreen ? 'exitFullscreen' : 'fullscreen'} />
         </button>
       </div>
@@ -299,29 +292,26 @@ export function Player({ model, height }) {
       onMouseLeave={() => scheduleHide(2000)}
       onDblClick={toggleFullscreen}
     >
-      <video ref={video} src={url || undefined} preload="auto" style={{ visibility: m.isAudioOnly || !ready ? 'hidden' : 'visible' }} />
-      {ready && m.isAudioOnly && (
+      {/* No spinner while loading: video stays black and fades in on its first frame;
+          audio shows its cover at once. */}
+      <video ref={video} src={url || undefined} preload="auto" class={!m.isAudioOnly && ready && model.videoReady.value ? 'shown' : ''} />
+      {m.isAudioOnly && state !== 'missing' && state !== 'error' && (
         <div class="audio-cover">
           <Logo size={56} />
           <div>{m.mediaFileName}</div>
         </div>
       )}
-      {state === 'loading' && url && (
-        <div class="player-msg">
-          <div class="sub">正在加载…</div>
-        </div>
-      )}
       {(state === 'missing' || state === 'error') && (
         <div class="player-msg">
           <Icon name="warning" size={30} />
-          <div class="title">{state === 'missing' ? '找不到媒体文件' : model.mediaError.value}</div>
+          <div class="title">{state === 'missing' ? L('找不到媒体文件') : model.mediaError.value}</div>
           <div class="sub" title={m.mediaPath}>
             {m.mediaFileName}
           </div>
           <button class="btn-primary compact" onClick={() => model.relocateMedia()}>
-            重新定位
+            {L('重新定位')}
           </button>
-          <div class="sub">文字记录与纪要仍可正常使用</div>
+          <div class="sub">{L('文字记录与纪要仍可正常使用')}</div>
         </div>
       )}
       {ready && <div class="click-catcher" onClick={onClick} />}

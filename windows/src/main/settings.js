@@ -17,6 +17,8 @@ export function defaultGeneral() {
     volume: 1,
     detailSplit: 0.57,
     listSort: 'created',
+    /** UI language id, or null to follow the system. */
+    language: null,
   };
 }
 

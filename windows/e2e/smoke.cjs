@@ -13,7 +13,7 @@ fs.mkdirSync(OUT, { recursive: true });
   const app = await _electron.launch({
     executablePath: path.join(APP, 'node_modules/electron/dist/electron'),
     args: ['--no-sandbox', path.join(APP, 'dist/main.cjs')],
-    env: { ...process.env, LOCALMINUTES_E2E: '1', LOCALMINUTES_USER_DATA: DATA, NODE_OPTIONS: '' },
+    env: { ...process.env, LOCALMINUTES_E2E: '1', LOCALMINUTES_USER_DATA: DATA, LOCALMINUTES_LANG: 'zh-CN', NODE_OPTIONS: '' },
   });
   const page = await app.firstWindow();
   const errors = [];
