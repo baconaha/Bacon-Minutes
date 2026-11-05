@@ -20,7 +20,11 @@ struct MinuteRow: View {
                 MinuteThumbnail(image: app.library.thumbnails[minute.id], isAudio: minute.isAudioOnly)
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
-                        if minute.hasSummary && !isTrash { TagLabel(text: L("纪要")) }
+                        if app.isGeneratingSummary(minute.id) && !isTrash {
+                            GeneratingTag()
+                        } else if minute.hasSummary && !isTrash {
+                            TagLabel(text: L("纪要"))
+                        }
                         Text(minute.title)
                             .font(.system(size: 14))
                             .foregroundStyle(Color.textPrimary)
@@ -31,6 +35,7 @@ struct MinuteRow: View {
                     HStack(spacing: 8) {
                         Text(TimeFormat.duration(minute.duration))
                         if !minute.hasTranscript { Text(L("· 无字幕")) }
+                        storageLabel
                         if app.currentFolderID == nil, let fid = minute.folderID, let folder = app.library.userFolder(fid) {
                             HStack(spacing: 3) {
                                 Image(systemName: "folder").font(.system(size: 10))
@@ -93,12 +98,40 @@ struct MinuteRow: View {
         }
     }
 
+    /// "应用内" / "链接" (or copy progress) in the meta line.
+    @ViewBuilder
+    private var storageLabel: some View {
+        if let p = app.copyingMedia[minute.id] {
+            HStack(spacing: 3) {
+                Image(systemName: "arrow.down.circle").font(.system(size: 10))
+                Text(L("正在导入应用 {0}%", Int((p * 100).rounded()))).monospacedDigit()
+            }
+            .foregroundStyle(Color.brand)
+        } else if minute.storage == .imported {
+            HStack(spacing: 3) {
+                Image(systemName: "internaldrive").font(.system(size: 10))
+                Text(L("应用内"))
+            }
+            .help(L("源文件已复制到应用内"))
+        } else {
+            HStack(spacing: 3) {
+                Image(systemName: "link").font(.system(size: 10))
+                Text(L("链接"))
+            }
+            .help(minute.mediaPath)
+        }
+    }
+
     @ViewBuilder
     private var menuItems: some View {
         Button(L("重命名")) { app.beginRename(minute.id) }
         Button(L("移动到文件夹…")) { app.moveTarget = [minute.id] }
         Button(L("在 Finder 中显示媒体")) { app.revealMedia(minute.id) }
         Button(L("重新导入 SRT…")) { app.reimportSRT(minute.id) }
+        if minute.storage == .linked {
+            Button(L("将源文件导入应用…")) { app.requestImportIntoApp(minute.id) }
+                .disabled(app.copyingMedia[minute.id] != nil)
+        }
         Divider()
         Button(L("移到回收站")) { app.requestMoveToTrash([minute.id]) }
     }
@@ -116,10 +149,36 @@ struct MinuteRow: View {
             items += [
                 .button(L("在 Finder 中显示媒体"), icon: "magnifyingglass") { app.revealMedia(minute.id) },
                 .button(L("重新导入 SRT…"), icon: "captions.bubble") { app.reimportSRT(minute.id) },
+            ]
+            if minute.storage == .linked {
+                items.append(.button(L("将源文件导入应用…"), icon: "internaldrive",
+                                     disabled: app.copyingMedia[minute.id] != nil) { app.requestImportIntoApp(minute.id) })
+            }
+            items += [
                 .divider,
                 .button(L("移到回收站"), icon: "trash", destructive: true) { app.requestMoveToTrash([minute.id]) },
             ]
             return items
+        }
+    }
+}
+
+/// "生成中" tag with a gently pulsing dot, while a summary is generated in the background.
+private struct GeneratingTag: View {
+    @State private var dim = false
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Circle().fill(Color.aiPurple).frame(width: 5, height: 5).opacity(dim ? 0.3 : 1)
+            Text(L("纪要生成中"))
+        }
+        .font(.system(size: 11))
+        .foregroundStyle(Color.aiPurple)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2)
+        .background(RoundedRectangle(cornerRadius: 2).fill(Color.aiCardTop))
+        .onAppear {
+            withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) { dim = true }
         }
     }
 }

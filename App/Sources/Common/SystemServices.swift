@@ -116,15 +116,19 @@ enum Bookmarks {
         return try? url.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil)
     }
 
-    static func resolve(_ data: Data) -> (url: URL, isStale: Bool)? {
+    /// Never shows UI. Without `allowMounting`, a bookmark to a file on an unmounted (network)
+    /// volume fails instead of mounting it, which could take a long time.
+    static func resolve(_ data: Data, allowMounting: Bool = true) -> (url: URL, isStale: Bool)? {
         guard !data.isEmpty else { return nil }
+        var extra: URL.BookmarkResolutionOptions = [.withoutUI]
+        if !allowMounting { extra.insert(.withoutMounting) }
         var stale = false
-        if let url = try? URL(resolvingBookmarkData: data, options: [.withSecurityScope], relativeTo: nil,
+        if let url = try? URL(resolvingBookmarkData: data, options: extra.union(.withSecurityScope), relativeTo: nil,
                               bookmarkDataIsStale: &stale) {
             return (url, stale)
         }
         stale = false
-        if let url = try? URL(resolvingBookmarkData: data, options: [], relativeTo: nil, bookmarkDataIsStale: &stale) {
+        if let url = try? URL(resolvingBookmarkData: data, options: extra, relativeTo: nil, bookmarkDataIsStale: &stale) {
             return (url, stale)
         }
         return nil
@@ -132,7 +136,7 @@ enum Bookmarks {
 }
 
 /// Keeps a security-scoped resource open until `stop()`.
-final class ScopedAccess {
+final class ScopedAccess: @unchecked Sendable {
     let url: URL
     private var active: Bool
 
@@ -197,6 +201,33 @@ enum FilePanels {
         return panel.runModal() == .OK ? panel.url : nil
     }
 
+    static var summaryFileType: UTType? { UTType(filenameExtension: SummaryFile.fileExtension) }
+
+    static func chooseSummaryFile() -> URL? {
+        let panel = NSOpenPanel()
+        panel.message = L("选择纪要文件（.{0}）", SummaryFile.fileExtension)
+        panel.allowsMultipleSelection = false
+        if let t = summaryFileType { panel.allowedContentTypes = [t] }
+        return panel.runModal() == .OK ? panel.url : nil
+    }
+
+    /// Asks for a destination and writes the data. Returns false if cancelled or failed.
+    @discardableResult
+    static func saveData(_ data: Data, suggestedName: String, fileExtension: String) -> Bool {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = sanitize(suggestedName) + "." + fileExtension
+        if let type = UTType(filenameExtension: fileExtension) { panel.allowedContentTypes = [type] }
+        panel.canCreateDirectories = true
+        guard panel.runModal() == .OK, let url = panel.url else { return false }
+        do {
+            try data.write(to: url, options: .atomic)
+            return true
+        } catch {
+            Alerts.error(L("导出失败"), error.localizedDescription)
+            return false
+        }
+    }
+
     /// Asks for a destination and writes UTF-8 text. Returns false if cancelled or failed.
     @discardableResult
     static func saveText(_ text: String, suggestedName: String, fileExtension: String) -> Bool {
@@ -231,7 +262,7 @@ enum FilePanels {
                                          options: [.skipsHiddenFiles, .skipsPackageDescendants]) {
                     for case let f as URL in e {
                         let k = MediaTypes.kind(of: f)
-                        if k != .other { out.append(f) }
+                        if k != .other || MediaTypes.isUnsupported(f) { out.append(f) }
                     }
                 }
             } else {

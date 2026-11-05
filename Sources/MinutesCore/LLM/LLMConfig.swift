@@ -168,6 +168,72 @@ struct LLMConfig: Codable, Equatable {
     }
 }
 
+extension LLMConfig {
+    var favoriteKey: String { FavoriteModel.key(presetID: presetID, baseURL: baseURL, model: model) }
+
+    /// What gets recorded with a summary made with this configuration.
+    var summaryParameters: SummaryParameters {
+        SummaryParameters(presetID: presetID,
+                          providerName: ProviderPreset.preset(id: presetID)?.nameKey ?? "自定义",
+                          protocolKind: protocolKind.rawValue, baseURL: baseURL.trimmed,
+                          outputLanguage: outputLanguage.rawValue,
+                          temperature: temperatureEnabled ? temperature : nil,
+                          maxOutputTokens: maxOutputTokens, maxInputChars: maxInputChars,
+                          promptVersion: Prompts.version)
+    }
+}
+
+/// A starred model: the endpoint plus the model name, so a summary can be generated with it
+/// without changing the settings. The API key is the one saved for its provider preset.
+struct FavoriteModel: Codable, Hashable, Identifiable {
+    var presetID: String
+    var protocolKind: LLMProtocol
+    var baseURL: String
+    var model: String
+    var azureAPIVersion: String
+    var anthropicVersion: String
+    var customHeaders: [HeaderPair]
+
+    var id: String { Self.key(presetID: presetID, baseURL: baseURL, model: model) }
+
+    static func key(presetID: String, baseURL: String, model: String) -> String {
+        "\(presetID)|\(baseURL.trimmed.lowercased())|\(model.trimmed)"
+    }
+
+    init(config: LLMConfig, model: String? = nil) {
+        presetID = config.presetID
+        protocolKind = config.protocolKind
+        baseURL = config.baseURL.trimmed
+        self.model = (model ?? config.model).trimmed
+        azureAPIVersion = config.azureAPIVersion
+        anthropicVersion = config.anthropicVersion
+        customHeaders = config.customHeaders
+    }
+
+    var providerName: String { ProviderPreset.preset(id: presetID)?.name ?? L("自定义") }
+
+    /// `base` pointed at this model; output language, limits and timeout stay as set.
+    func applied(to base: LLMConfig) -> LLMConfig {
+        var c = base
+        let wasAnthropic = c.protocolKind == .anthropic
+        c.presetID = presetID
+        c.protocolKind = protocolKind
+        c.baseURL = baseURL
+        c.model = model
+        c.azureAPIVersion = azureAPIVersion
+        c.anthropicVersion = anthropicVersion
+        c.customHeaders = customHeaders
+        if protocolKind == .anthropic && !wasAnthropic {
+            c.temperatureEnabled = false
+            c.maxOutputTokens = max(c.maxOutputTokens, 16_000)
+        } else if protocolKind != .anthropic && wasAnthropic {
+            c.temperatureEnabled = true
+            if c.maxOutputTokens == 16_000 { c.maxOutputTokens = 4096 }
+        }
+        return c
+    }
+}
+
 /// Parameters removed or renamed for one endpoint after HTTP 400s (§7.4).
 struct CompatFlags: Codable, Equatable {
     var dropResponseFormat = false

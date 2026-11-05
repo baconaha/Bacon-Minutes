@@ -108,18 +108,23 @@ struct FlipDialog<Content: View>: View {
 
 struct ConfirmDialogView: View {
     let request: ConfirmRequest
-    /// Runs after the close animation with the user's choice.
-    let finish: (Bool) -> Void
+    /// Runs after the close animation with the user's choice and the checkbox state.
+    let finish: (_ confirmed: Bool, _ checked: Bool) -> Void
     @State private var closing = false
     @State private var confirmed = false
+    @State private var checked = false
 
     var body: some View {
-        FlipDialog(onClosed: { finish(confirmed) }, closeRequest: $closing) {
+        FlipDialog(onClosed: { finish(confirmed, checked) }, closeRequest: $closing) {
             VStack(alignment: .leading, spacing: 0) {
                 HStack(alignment: .top, spacing: 14) {
                     ZStack {
-                        Circle().fill(Color(nsColor: NSColor(hex: 0xF08A24))).frame(width: 24, height: 24)
-                        Text("!").font(.system(size: 15, weight: .heavy)).foregroundStyle(.white)
+                        Circle()
+                            .fill(Color(nsColor: request.destructive ? NSColor(hex: 0xF08A24) : Palette.brand))
+                            .frame(width: 24, height: 24)
+                        Text(request.destructive ? "!" : "i")
+                            .font(.system(size: 15, weight: .heavy, design: request.destructive ? .default : .serif))
+                            .foregroundStyle(.white)
                     }
                     .padding(.top, 1)
                     VStack(alignment: .leading, spacing: 10) {
@@ -139,6 +144,24 @@ struct ConfirmDialogView: View {
                                 .lineSpacing(3)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
+                        if let box = request.checkbox {
+                            Button {
+                                checked.toggle()
+                            } label: {
+                                HStack(spacing: 8) {
+                                    Image(systemName: checked ? "checkmark.square.fill" : "square")
+                                        .font(.system(size: 15))
+                                        .foregroundStyle(checked ? Color.brand : Color.textTertiary)
+                                    Text(box)
+                                        .font(.system(size: 14))
+                                        .foregroundStyle(Color.textPrimary)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .padding(.top, 4)
+                        }
                     }
                 }
                 HStack(spacing: 12) {
@@ -146,17 +169,31 @@ struct ConfirmDialogView: View {
                     Button(request.cancelTitle) { closing = true }
                         .buttonStyle(DialogCancelButtonStyle())
                         .keyboardShortcut(.cancelAction)
-                    Button(request.confirmTitle) {
-                        confirmed = true
-                        closing = true
+                    if request.destructive {
+                        Button(confirmTitle) {
+                            confirmed = true
+                            closing = true
+                        }
+                        .buttonStyle(DangerButtonStyle())
+                        .keyboardShortcut(.defaultAction)
+                    } else {
+                        Button(confirmTitle) {
+                            confirmed = true
+                            closing = true
+                        }
+                        .buttonStyle(PrimaryButtonStyle())
+                        .keyboardShortcut(.defaultAction)
                     }
-                    .buttonStyle(DangerButtonStyle())
-                    .keyboardShortcut(.defaultAction)
                 }
                 .padding(.top, 30)
             }
             .padding(EdgeInsets(top: 28, leading: 28, bottom: 24, trailing: 26))
         }
+    }
+
+    /// With the checkbox ticked the next step is another confirmation, so the button says so.
+    private var confirmTitle: String {
+        checked && request.onConfirmChecked != nil ? L("下一步") : request.confirmTitle
     }
 }
 

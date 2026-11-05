@@ -247,10 +247,19 @@ struct APISettingsForm: View {
                             TextField(settings.llm.protocolKind == .azure ? L("Azure 部署名称") : L("模型名称"),
                                       text: $settings.llm.model)
                                 .textFieldStyle(.roundedBorder)
+                            StarButton(on: settings.isFavorite(settings.llm.favoriteKey), size: 14) {
+                                settings.toggleFavorite(model: settings.llm.model)
+                            }
+                            .disabled(settings.llm.model.trimmingCharacters(in: .whitespaces).isEmpty)
                             if !models.isEmpty {
-                                DropdownButton(alignment: .trailing, minWidth: 220, openOnHover: false, items: {
+                                DropdownButton(alignment: .trailing, minWidth: 260, openOnHover: false, items: {
                                     models.map { m in
-                                        DropdownItem.button(m, selected: m == settings.llm.model) { settings.llm.model = m }
+                                        let key = FavoriteModel.key(presetID: settings.llm.presetID, baseURL: settings.llm.baseURL, model: m)
+                                        return DropdownItem.starrable(m, selected: m == settings.llm.model,
+                                                                      starred: settings.isFavorite(key),
+                                                                      onStar: { settings.toggleFavorite(model: m) }) {
+                                            settings.llm.model = m
+                                        }
                                     }
                                 }) { open in
                                     Image(systemName: "chevron.down")
@@ -288,6 +297,10 @@ struct APISettingsForm: View {
                     .buttonStyle(.plain)
                     .frame(width: 220, alignment: .leading)
                 }
+            }
+
+            if !embedded {
+                FavoriteModelsSection(settings: settings)
             }
 
             DisclosureGroup(L("高级"), isExpanded: $showAdvanced) {
@@ -450,6 +463,80 @@ struct APISettingsForm: View {
                 testResult = (false, error.localizedDescription)
             }
         }
+    }
+}
+
+/// Starred models, from any provider. Each can be picked in a minute's summary tab.
+private struct FavoriteModelsSection: View {
+    @Bindable var settings: AppSettings
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "star.fill").font(.system(size: 11)).foregroundStyle(StarButton.yellow)
+                Text(L("收藏的模型"))
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color.textPrimary)
+                Text(settings.favorites.isEmpty ? "" : "\(settings.favorites.count)")
+                    .font(.system(size: 12).monospacedDigit())
+                    .foregroundStyle(Color.textTertiary)
+            }
+            if settings.favorites.isEmpty {
+                Text(L("在模型列表里点 ☆ 收藏常用模型。生成纪要时，可以在每个妙记的纪要页直接切换收藏的模型。"))
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.divider, style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
+            } else {
+                VStack(spacing: 0) {
+                    ForEach(Array(settings.favorites.enumerated()), id: \.element.id) { i, fav in
+                        if i > 0 { Rectangle().fill(Color.divider).frame(height: 1).padding(.leading, 40) }
+                        FavoriteRow(settings: settings, fav: fav)
+                    }
+                }
+                .background(RoundedRectangle(cornerRadius: 8).fill(Color.card))
+                .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.divider))
+            }
+        }
+    }
+}
+
+private struct FavoriteRow: View {
+    @Bindable var settings: AppSettings
+    let fav: FavoriteModel
+    @State private var hovering = false
+
+    private var isDefault: Bool { settings.llm.favoriteKey == fav.id }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            StarButton(on: true, size: 13) { settings.removeFavorite(fav.id) }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(fav.model)
+                    .font(.system(size: 13))
+                    .foregroundStyle(Color.textPrimary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Text(fav.providerName)
+                    .font(.system(size: 11))
+                    .foregroundStyle(Color.textTertiary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 8)
+            if isDefault {
+                TagLabel(text: L("默认"))
+            } else if hovering {
+                Button(L("设为默认")) { settings.useAsDefault(fav) }
+                    .buttonStyle(TextLinkButtonStyle(size: 12))
+            }
+        }
+        .padding(.horizontal, 10)
+        .frame(height: 44)
+        .background(hovering ? Color.rowHover : Color.clear)
+        .contentShape(Rectangle())
+        .onHover { hovering = $0 }
     }
 }
 

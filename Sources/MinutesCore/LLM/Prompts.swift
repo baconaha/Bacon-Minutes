@@ -1,6 +1,9 @@
 import Foundation
 
 enum Prompts {
+    /// Bumped whenever the prompt changes; recorded with each summary.
+    static let version = 2
+
     /// §8.1, plus the terminology rule (11): terms keep the language the speakers used.
     static let system = """
     你是一名专业的会议、课堂与视频内容纪要助手。你会收到一份带时间戳的文字记录（来自字幕或语音识别，可能含错别字、口语重复和断句错误），请据此生成条理清晰的「智能纪要」。

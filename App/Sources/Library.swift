@@ -3,7 +3,8 @@ import Foundation
 import Observation
 
 /// On-disk store: `~/Library/Application Support/BaconMinutes/minutes/<uuid>/`
-/// with `meta.json`, `transcript.json`, `summary.json`, `source.srt` and `thumbs/cover.jpg` (§9.4).
+/// with `meta.json`, `transcript.json`, `summaries.json` (every summary version), `source.srt`,
+/// `thumbs/cover.jpg` and, for media imported into the app, `media/<file name>` (§9.4).
 @MainActor
 @Observable
 final class Library {
@@ -30,6 +31,12 @@ final class Library {
     }
 
     func folder(_ id: UUID) -> URL { Self.folder(root: root, id: id) }
+
+    /// Where media imported into the app is kept.
+    func mediaDirectory(_ id: UUID) -> URL { folder(id).appendingPathComponent("media", isDirectory: true) }
+
+    /// The in-app copy of an imported minute's media.
+    func importedMediaURL(_ m: Minute) -> URL { mediaDirectory(m.id).appendingPathComponent(m.mediaFileName) }
 
     nonisolated static func encoder() -> JSONEncoder {
         let e = JSONEncoder()
@@ -139,13 +146,14 @@ final class Library {
 
     /// Minutes imported before sizes were recorded get their media size measured once.
     private func backfillMediaSizes() {
-        let missing = minutes.filter { $0.mediaSize == nil }.map { ($0.id, $0.mediaBookmark) }
+        let missing = minutes.filter { $0.mediaSize == nil && $0.storage == .linked }.map { ($0.id, $0.mediaBookmark) }
         guard !missing.isEmpty else { return }
         Task {
             let sizes = await Task.detached(priority: .utility) { () -> [UUID: Int64] in
                 var out: [UUID: Int64] = [:]
                 for (id, bookmark) in missing {
-                    guard let resolved = Bookmarks.resolve(bookmark) else { continue }
+                    // Never mounts a network volume; offline files are just skipped.
+                    guard let resolved = Bookmarks.resolve(bookmark, allowMounting: false) else { continue }
                     let access = ScopedAccess(url: resolved.url)
                     if let size = Library.fileSize(of: resolved.url) { out[id] = size }
                     access.stop()
@@ -228,18 +236,40 @@ final class Library {
         try? data.write(to: url, options: .atomic)
     }
 
-    func loadSummary(_ id: UUID) -> Summary? {
-        guard let data = try? Data(contentsOf: folder(id).appendingPathComponent("summary.json")) else { return nil }
-        return try? Self.decoder().decode(Summary.self, from: data)
+    /// Every summary version, oldest first. A single `summary.json` from older builds is
+    /// moved into the list the first time it is read.
+    func loadSummaries(_ id: UUID) -> [Summary] {
+        let dir = folder(id)
+        let listURL = dir.appendingPathComponent("summaries.json")
+        if let data = try? Data(contentsOf: listURL) {
+            return (try? Self.decoder().decode([Summary].self, from: data)) ?? []
+        }
+        let legacyURL = dir.appendingPathComponent("summary.json")
+        guard let data = try? Data(contentsOf: legacyURL),
+              let old = try? Self.decoder().decode(Summary.self, from: data) else { return [] }
+        write([old], to: listURL)
+        try? FileManager.default.removeItem(at: legacyURL)
+        return [old]
     }
 
-    func saveSummary(_ summary: Summary?, id: UUID) {
-        let url = folder(id).appendingPathComponent("summary.json")
-        if let summary {
-            write(summary, to: url)
-        } else {
+    func saveSummaries(_ list: [Summary], id: UUID) {
+        let url = folder(id).appendingPathComponent("summaries.json")
+        if list.isEmpty {
             try? FileManager.default.removeItem(at: url)
+        } else {
+            write(list, to: url)
         }
+    }
+
+    /// Adds a version and makes it the one shown. Returns the full list, or nil when the minute
+    /// no longer exists (deleted while its summary was being generated).
+    @discardableResult
+    func appendSummary(_ s: Summary, to id: UUID) -> [Summary]? {
+        guard minute(id) != nil else { return nil }
+        var list = loadSummaries(id)
+        list.append(s)
+        saveSummaries(list, id: id)
+        return list
     }
 
     // MARK: Thumbnails

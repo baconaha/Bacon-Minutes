@@ -81,8 +81,8 @@ struct PlayerArea: View {
             if model.minute.isAudioOnly {
                 AudioCover(title: model.minute.mediaFileName)
             }
-        case .missing:
-            MissingMediaView(fileName: model.minute.mediaFileName) { model.relocateMedia() }
+        case .missing, .unreachable:
+            MissingMediaView(model: model)
         case .ready:
             if model.minute.isAudioOnly {
                 AudioCover(title: model.minute.mediaFileName)
@@ -212,30 +212,100 @@ struct AudioCover: View {
     }
 }
 
+/// Shown when the media cannot be played: where it was, and ways to get it back.
 struct MissingMediaView: View {
-    let fileName: String
-    let relocate: () -> Void
+    let model: DetailModel
+
+    private var linked: Bool { model.minute.storage == .linked }
+    private var unreachable: Bool { model.mediaState == .unreachable }
 
     var body: some View {
         VStack(spacing: 12) {
-            Image(systemName: "exclamationmark.triangle.fill")
+            Image(systemName: unreachable ? "externaldrive.badge.exclamationmark" : "exclamationmark.triangle.fill")
                 .font(.system(size: 28))
                 .foregroundStyle(Color.white.opacity(0.8))
-            Text(L("找不到媒体文件"))
+            Text(title)
                 .font(.system(size: 15, weight: .medium))
                 .foregroundStyle(.white)
-            Text(fileName)
-                .font(.system(size: 12))
-                .foregroundStyle(Color.white.opacity(0.6))
-                .lineLimit(1)
-                .truncationMode(.middle)
+            if linked && !model.minute.mediaPath.isEmpty {
+                VStack(spacing: 3) {
+                    Text(L("原路径"))
+                        .font(.system(size: 11))
+                        .foregroundStyle(Color.white.opacity(0.45))
+                    Text(model.minute.mediaPath)
+                        .font(.system(size: 12))
+                        .foregroundStyle(Color.white.opacity(0.7))
+                        .lineLimit(2)
+                        .truncationMode(.middle)
+                        .multilineTextAlignment(.center)
+                        .textSelection(.enabled)
+                }
                 .padding(.horizontal, 40)
-            Button(L("重新定位"), action: relocate)
-                .buttonStyle(PrimaryButtonStyle(compact: true))
-            Text(L("文字记录与纪要仍可正常使用"))
+            } else {
+                Text(model.minute.mediaFileName)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color.white.opacity(0.6))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .padding(.horizontal, 40)
+            }
+            HStack(spacing: 10) {
+                if linked {
+                    Button {
+                        model.recheckMedia()
+                    } label: {
+                        HStack(spacing: 6) {
+                            if model.isRechecking {
+                                ProgressView().controlSize(.small).tint(.white)
+                            } else {
+                                Image(systemName: "arrow.clockwise").font(.system(size: 12, weight: .semibold))
+                            }
+                            Text(model.isRechecking ? L("正在检测…") : L("重新检测路径"))
+                        }
+                    }
+                    .buttonStyle(PrimaryButtonStyle(compact: true))
+                    .disabled(model.isRechecking)
+                }
+                Button(linked ? L("重新定位…") : L("选择文件…")) { model.relocateMedia() }
+                    .buttonStyle(MissingSecondaryButtonStyle())
+                    .disabled(model.isRechecking)
+            }
+            .padding(.top, 2)
+            Text(footnote)
                 .font(.system(size: 12))
-                .foregroundStyle(Color.white.opacity(0.5))
+                .foregroundStyle(model.recheckFailed ? Color(nsColor: NSColor(hex: 0xFFB4AE)) : Color.white.opacity(0.5))
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 40)
         }
+    }
+
+    private var title: String {
+        if !linked { return L("应用内的源文件已丢失") }
+        return unreachable ? L("无法访问源文件所在位置") : L("原路径已找不到文件")
+    }
+
+    private var footnote: String {
+        if model.recheckFailed {
+            return unreachable ? L("仍然无法访问。请确认已连接到所在的磁盘或网络（如 NAS）后再试。")
+                               : L("仍未找到文件。把文件移回原路径后再检测，或「重新定位」到新位置。")
+        }
+        if linked && unreachable { return L("所在的磁盘或网络位置（如 NAS）没有响应。文字记录与纪要仍可正常使用。") }
+        return L("文字记录与纪要仍可正常使用")
+    }
+}
+
+/// Outlined white button on the dark player background.
+private struct MissingSecondaryButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 13))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 14)
+            .frame(height: 28)
+            .background(RoundedRectangle(cornerRadius: 6).fill(Color.white.opacity(configuration.isPressed ? 0.22 : 0.12)))
+            .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.white.opacity(0.3)))
+            .contentShape(Rectangle())
+            .pointingHandCursor()
     }
 }
 

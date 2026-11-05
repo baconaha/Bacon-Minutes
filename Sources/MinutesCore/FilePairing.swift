@@ -25,6 +25,18 @@ enum MediaTypes {
     }
 
     static func isSubtitle(_ url: URL) -> Bool { kind(of: url) == .subtitle }
+
+    /// Video and subtitle formats this app cannot play or read; batch import lists them as skipped.
+    static let unsupportedVideoExtensions: Set<String> = ["mkv", "avi", "wmv", "flv", "webm", "ts", "m2ts", "mts",
+                                                          "rmvb", "rm", "3gp", "mpg", "mpeg", "vob", "ogv"]
+    static let unsupportedSubtitleExtensions: Set<String> = ["ass", "ssa", "vtt", "sub", "lrc"]
+
+    static func isUnsupported(_ url: URL) -> Bool {
+        let ext = url.pathExtension.lowercased()
+        return unsupportedVideoExtensions.contains(ext) || unsupportedSubtitleExtensions.contains(ext)
+    }
+
+    static func isSummaryFile(_ url: URL) -> Bool { url.pathExtension.lowercased() == "baconsummary" }
 }
 
 enum FilePairing {

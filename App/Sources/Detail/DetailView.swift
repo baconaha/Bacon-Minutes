@@ -32,13 +32,17 @@ struct DetailView: View {
             if dropTargeted && !model.isVideoFullscreen {
                 RoundedRectangle(cornerRadius: 10)
                     .strokeBorder(Color.brand, style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
-                    .overlay(Text(L("松开以导入（SRT 将导入到当前妙记）")).font(.system(size: 14, weight: .medium)).foregroundStyle(Color.brand))
+                    .overlay(Text(L("松开以导入（SRT 或纪要文件将导入到当前妙记）")).font(.system(size: 14, weight: .medium)).foregroundStyle(Color.brand))
                     .padding(10)
                     .allowsHitTesting(false)
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { _ in
             if model.isVideoFullscreen { model.isVideoFullscreen = false }
+        }
+        // Back from Finder, where the file may have been moved back: look again, quietly.
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            if model.mediaState == .missing { model.recheckMedia(silent: true) }
         }
         .onChange(of: model.settings.general.insertComma) { model.rebuildDocument() }
     }
@@ -85,6 +89,10 @@ struct DetailView: View {
 
     private func handleDrop(_ urls: [URL]) {
         let files = FilePanels.expand(urls)
+        if let summaryFile = files.first(where: MediaTypes.isSummaryFile), !files.contains(where: MediaTypes.isMedia) {
+            model.importSummaryFile(summaryFile)
+            return
+        }
         if let srt = files.first(where: MediaTypes.isSubtitle), !files.contains(where: MediaTypes.isMedia) {
             model.importSRT(from: srt)
         } else {
@@ -170,6 +178,7 @@ private struct DetailTopBar: View {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 8) {
                     EditableTitle(title: model.minute.title) { model.renameTitle($0) }
+                    StorageTag(model: model, app: app)
                     ForEach(Array(model.tags.enumerated()), id: \.offset) { _, tag in
                         TagLabel(text: tag.0, warning: tag.1)
                     }
@@ -192,13 +201,23 @@ private struct DetailTopBar: View {
             .fixedSize()
 
             DropdownButton(alignment: .trailing, items: {
-                [
+                var items: [DropdownItem] = [
                     .button(L("重新导入 SRT…"), icon: "captions.bubble") { model.chooseAndImportSRT() },
+                    .button(L("导入纪要文件…"), icon: "doc.badge.plus") { model.chooseAndImportSummaryFile() },
                     .button(L("更换媒体文件…"), icon: "film") { model.relocateMedia() },
                     .button(L("在 Finder 中显示"), icon: "folder") { model.revealMedia() },
+                ]
+                if model.minute.storage == .linked {
+                    items.append(.button(L("将源文件导入应用…"), icon: "internaldrive",
+                                         disabled: app.copyingMedia[model.minute.id] != nil) {
+                        app.requestImportIntoApp(model.minute.id)
+                    })
+                }
+                items += [
                     .divider,
                     .button(L("移到回收站"), icon: "trash", destructive: true) { app.requestMoveToTrash([model.minute.id]) },
                 ]
+                return items
             }) { open in
                 Image(systemName: "ellipsis")
                     .font(.system(size: 15, weight: .medium))
@@ -271,5 +290,68 @@ func exportMenuItems(for model: DetailModel) -> [DropdownItem] {
         .button(L("导出 SRT"), icon: "captions.bubble", disabled: noTranscript) { model.export(.srt) },
         .button(L("导出 TXT（带时间戳与发言人）"), icon: "doc.plaintext", disabled: noTranscript) { model.export(.txt) },
         .button(L("导出 Markdown（纪要 + 文字记录）"), icon: "doc.richtext") { model.export(.markdown) },
+        .divider,
+        .button(L("导出纪要文件（.{0}）", SummaryFile.fileExtension), icon: "sparkles.rectangle.stack",
+                disabled: model.summary == nil) { model.exportSummaryFile() },
     ]
+}
+
+// MARK: - Storage tag
+
+/// "应用内" or "链接": where the media lives. The link tag opens a menu with the path and
+/// "导入到应用".
+private struct StorageTag: View {
+    let model: DetailModel
+    let app: AppModel
+
+    var body: some View {
+        let id = model.minute.id
+        if let p = app.copyingMedia[id] {
+            StorageBadge(icon: "arrow.down.circle", text: L("正在导入应用 {0}%", Int((p * 100).rounded())), accent: true)
+        } else if model.minute.storage == .imported {
+            StorageBadge(icon: "internaldrive", text: L("应用内"), accent: true)
+                .help(L("源文件已复制到应用内，原文件移动或删除都不影响播放。"))
+        } else {
+            DropdownButton(minWidth: 280, openOnHover: false, items: { linkItems }) { open in
+                StorageBadge(icon: "link", text: L("链接"), accent: false, open: open)
+            }
+            .buttonStyle(.plain)
+            .help(L("只链接了源文件的路径，点击查看"))
+        }
+    }
+
+    private var linkItems: [DropdownItem] {
+        [
+            .button(model.minute.mediaPath.isEmpty ? model.minute.mediaFileName : model.minute.mediaPath,
+                    icon: "doc", disabled: true) {},
+            .divider,
+            .button(L("在 Finder 中显示"), icon: "folder") { model.revealMedia() },
+            .button(L("将源文件导入应用…"), icon: "internaldrive") { app.requestImportIntoApp(model.minute.id) },
+        ]
+    }
+}
+
+struct StorageBadge: View {
+    let icon: String
+    let text: String
+    var accent: Bool
+    var open = false
+
+    var body: some View {
+        HStack(spacing: 3) {
+            Image(systemName: icon).font(.system(size: 9, weight: .semibold))
+            Text(text).font(.system(size: 11))
+            if !accent {
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 7, weight: .bold))
+                    .rotationEffect(.degrees(open ? 180 : 0))
+            }
+        }
+        .foregroundStyle(accent ? Color.brand : Color.textSecondary)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2)
+        .background(RoundedRectangle(cornerRadius: 3).fill(accent ? Color.selectionFill : Color.searchFill))
+        .overlay(RoundedRectangle(cornerRadius: 3).strokeBorder(open ? Color.brand.opacity(0.6) : Color.clear))
+        .fixedSize()
+    }
 }

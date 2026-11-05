@@ -60,6 +60,21 @@ struct Transcript: Codable {
         }
         return hasher.hexDigest
     }
+
+    /// Fingerprint of the cues alone (text and timing, not speaker names), used to tell whether
+    /// an exported summary belongs to this recording even after speakers were renamed.
+    var cuesHash: String {
+        var hasher = FNV1a()
+        for cue in cues {
+            hasher.combine(String(Int((cue.start * 1000).rounded())))
+            hasher.combine("|")
+            hasher.combine(String(Int((cue.end * 1000).rounded())))
+            hasher.combine("|")
+            hasher.combine(cue.text)
+            hasher.combine("\n")
+        }
+        return hasher.hexDigest
+    }
 }
 
 enum SpeakerPalette {
@@ -98,7 +113,54 @@ struct SummaryDraft: Hashable {
     var keywords: [String]
 }
 
-struct Summary: Codable {
+/// How a summary was made: provider, endpoint and the request parameters.
+struct SummaryParameters: Codable, Hashable {
+    var presetID: String
+    var providerName: String
+    var protocolKind: String
+    var baseURL: String
+    var outputLanguage: String
+    /// Nil when temperature was not sent.
+    var temperature: Double?
+    var maxOutputTokens: Int
+    var maxInputChars: Int
+    var promptVersion: Int
+
+    init(presetID: String, providerName: String, protocolKind: String, baseURL: String, outputLanguage: String,
+         temperature: Double?, maxOutputTokens: Int, maxInputChars: Int, promptVersion: Int) {
+        self.presetID = presetID
+        self.providerName = providerName
+        self.protocolKind = protocolKind
+        self.baseURL = baseURL
+        self.outputLanguage = outputLanguage
+        self.temperature = temperature
+        self.maxOutputTokens = maxOutputTokens
+        self.maxInputChars = maxInputChars
+        self.promptVersion = promptVersion
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case presetID, providerName, protocolKind, baseURL, outputLanguage, temperature
+        case maxOutputTokens, maxInputChars, promptVersion
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        presetID = try c.decodeIfPresent(String.self, forKey: .presetID) ?? ""
+        providerName = try c.decodeIfPresent(String.self, forKey: .providerName) ?? ""
+        protocolKind = try c.decodeIfPresent(String.self, forKey: .protocolKind) ?? ""
+        baseURL = try c.decodeIfPresent(String.self, forKey: .baseURL) ?? ""
+        outputLanguage = try c.decodeIfPresent(String.self, forKey: .outputLanguage) ?? ""
+        temperature = try c.decodeIfPresent(Double.self, forKey: .temperature)
+        maxOutputTokens = try c.decodeIfPresent(Int.self, forKey: .maxOutputTokens) ?? 0
+        maxInputChars = try c.decodeIfPresent(Int.self, forKey: .maxInputChars) ?? 0
+        promptVersion = try c.decodeIfPresent(Int.self, forKey: .promptVersion) ?? 0
+    }
+}
+
+/// One generated summary. A minute can keep several (different models, regenerations).
+struct Summary: Codable, Identifiable {
+    var id: UUID
     var overview: String
     var keyPoints: [KeyPoint]
     var todos: [TodoItem]
@@ -107,12 +169,13 @@ struct Summary: Codable {
     var model: String
     var generatedAt: Date
     var transcriptHash: String
-    /// Thumbs on the meeting-summary card: 1 up / -1 down / nil none.
-    var feedback: Int?
-    /// Thumbs on the chapter card.
-    var chaptersFeedback: Int?
+    /// `Transcript.cuesHash` at generation time.
+    var cuesHash: String?
+    var parameters: SummaryParameters?
 
-    init(draft: SummaryDraft, model: String, generatedAt: Date, transcriptHash: String) {
+    init(id: UUID = UUID(), draft: SummaryDraft, model: String, generatedAt: Date, transcriptHash: String,
+         cuesHash: String? = nil, parameters: SummaryParameters? = nil) {
+        self.id = id
         overview = draft.overview
         keyPoints = draft.keyPoints
         todos = draft.todos
@@ -121,8 +184,32 @@ struct Summary: Codable {
         self.model = model
         self.generatedAt = generatedAt
         self.transcriptHash = transcriptHash
-        feedback = nil
-        chaptersFeedback = nil
+        self.cuesHash = cuesHash
+        self.parameters = parameters
+    }
+
+    var draft: SummaryDraft {
+        SummaryDraft(overview: overview, keyPoints: keyPoints, todos: todos, chapters: chapters, keywords: keywords)
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, overview, keyPoints, todos, chapters, keywords, model, generatedAt, transcriptHash, cuesHash, parameters
+    }
+
+    /// Summaries saved before versions existed have no id; they get one when read.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        overview = try c.decodeIfPresent(String.self, forKey: .overview) ?? ""
+        keyPoints = try c.decodeIfPresent([KeyPoint].self, forKey: .keyPoints) ?? []
+        todos = try c.decodeIfPresent([TodoItem].self, forKey: .todos) ?? []
+        chapters = try c.decodeIfPresent([Chapter].self, forKey: .chapters) ?? []
+        keywords = try c.decodeIfPresent([String].self, forKey: .keywords) ?? []
+        model = try c.decodeIfPresent(String.self, forKey: .model) ?? ""
+        generatedAt = try c.decodeIfPresent(Date.self, forKey: .generatedAt) ?? Date()
+        transcriptHash = try c.decodeIfPresent(String.self, forKey: .transcriptHash) ?? ""
+        cuesHash = try c.decodeIfPresent(String.self, forKey: .cuesHash)
+        parameters = try c.decodeIfPresent(SummaryParameters.self, forKey: .parameters)
     }
 
     /// Chapter whose range contains `t` (last chapter starting at or before `t`).
@@ -136,6 +223,14 @@ struct Summary: Codable {
 }
 
 // MARK: - Minute (one library item)
+
+/// Where a minute's media lives: a copy inside the app, or a link to the user's file.
+enum MediaStorage: String, Codable {
+    /// Bookmark / path to the original file, which may move or go offline.
+    case linked
+    /// Copied into the minute's folder in the app's library.
+    case imported
+}
 
 struct Minute: Codable, Identifiable, Hashable {
     let id: UUID
@@ -161,6 +256,9 @@ struct Minute: Codable, Identifiable, Hashable {
     var folderID: UUID?
     /// Size of the media file in bytes, when known.
     var mediaSize: Int64?
+    var storage: MediaStorage
+    /// Summary version shown when the minute opens.
+    var activeSummaryID: UUID?
 
     var hasTranscript: Bool { srtFileName != nil }
 
@@ -184,12 +282,14 @@ struct Minute: Codable, Identifiable, Hashable {
         self.lastPlaybackPosition = 0
         self.folderID = nil
         self.mediaSize = nil
+        self.storage = .linked
+        self.activeSummaryID = nil
     }
 
     enum CodingKeys: String, CodingKey {
         case id, title, createdAt, lastOpenedAt, duration, mediaBookmark, mediaPath, mediaFileName, isAudioOnly
         case srtBookmark, srtFileName, cueCount, speakerCount, hasSummary, deletedAt, lastPlaybackPosition
-        case folderID, mediaSize
+        case folderID, mediaSize, storage, activeSummaryID
     }
 
     init(from decoder: Decoder) throws {
@@ -212,6 +312,8 @@ struct Minute: Codable, Identifiable, Hashable {
         lastPlaybackPosition = try c.decodeIfPresent(Double.self, forKey: .lastPlaybackPosition) ?? 0
         folderID = try c.decodeIfPresent(UUID.self, forKey: .folderID)
         mediaSize = try c.decodeIfPresent(Int64.self, forKey: .mediaSize)
+        storage = try c.decodeIfPresent(MediaStorage.self, forKey: .storage) ?? .linked
+        activeSummaryID = try c.decodeIfPresent(UUID.self, forKey: .activeSummaryID)
     }
 }
 

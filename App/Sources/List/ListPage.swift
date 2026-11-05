@@ -169,9 +169,10 @@ private struct FolderList: View {
                 .onPreferenceChange(FolderFramesKey.self) { frames = $0 }
                 .overlay(alignment: .topLeading) {
                     if let r = marquee {
-                        RoundedRectangle(cornerRadius: 3)
+                        RoundedRectangle(cornerRadius: min(3, r.width / 2, r.height / 2))
                             .fill(Color.brand.opacity(0.08))
-                            .overlay(RoundedRectangle(cornerRadius: 3).strokeBorder(Color.brand.opacity(0.5), lineWidth: 1))
+                            .overlay(RoundedRectangle(cornerRadius: min(3, r.width / 2, r.height / 2))
+                                .strokeBorder(Color.brand.opacity(0.5), lineWidth: 1))
                             .frame(width: r.width, height: r.height)
                             .offset(x: r.minX, y: r.minY)
                             .allowsHitTesting(false)
@@ -198,10 +199,9 @@ private struct FolderList: View {
                     app.selection = []
                 }
                 guard !dragIgnored else { return }
-                let r = CGRect(x: min(g.startLocation.x, g.location.x), y: min(g.startLocation.y, g.location.y),
-                               width: abs(g.location.x - g.startLocation.x), height: abs(g.location.y - g.startLocation.y))
+                let r = Self.marqueeRect(from: g.startLocation, to: g.location)
                 marquee = r
-                let touched = Set(frames.filter { $0.value.intersects(r) }.map(\.key))
+                let touched = Set(frames.filter { Self.touches($0.value, r) }.map(\.key))
                 let next = baseSelection.union(touched)
                 if next != app.folderSelection { app.folderSelection = next }
             }
@@ -209,6 +209,22 @@ private struct FolderList: View {
                 marquee = nil
                 dragIgnored = false
             }
+    }
+
+    /// At least 2 pt each way, so a straight vertical or horizontal drag still draws a visible
+    /// box and still selects what it crosses.
+    static func marqueeRect(from a: CGPoint, to b: CGPoint) -> CGRect {
+        let minSide: CGFloat = 2
+        let w = max(abs(b.x - a.x), minSide)
+        let h = max(abs(b.y - a.y), minSide)
+        let x = b.x >= a.x ? a.x : a.x - w
+        let y = b.y >= a.y ? a.y : a.y - h
+        return CGRect(x: x, y: y, width: w, height: h)
+    }
+
+    /// Overlap test that counts touching edges (`CGRect.intersects` is false for thin rects).
+    static func touches(_ f: CGRect, _ r: CGRect) -> Bool {
+        r.minX <= f.maxX && r.maxX >= f.minX && r.minY <= f.maxY && r.maxY >= f.minY
     }
 }
 
@@ -462,6 +478,13 @@ private struct ListContent: View {
         .padding(.bottom, 14)
     }
 
+    private var importingText: String {
+        guard let p = app.importProgress else { return L("正在导入…") }
+        var text = p.total > 1 ? L("正在导入 {0}/{1}", p.index, p.total) : L("正在导入…")
+        if let f = p.fraction { text += L(" · 复制到应用 {0}%", Int((f * 100).rounded())) }
+        return text
+    }
+
     private var titleRow: some View {
         HStack(spacing: 8) {
             if app.currentFolderID != nil {
@@ -475,7 +498,7 @@ private struct ListContent: View {
                 .lineLimit(1)
             if app.isImporting {
                 ProgressView().controlSize(.small).padding(.leading, 6)
-                Text(L("正在导入…")).font(.system(size: 12)).foregroundStyle(Color.textTertiary)
+                Text(importingText).font(.system(size: 12).monospacedDigit()).foregroundStyle(Color.textTertiary)
             }
             Spacer()
             if !isTrash { ImportMenuButton(app: app) }

@@ -5,7 +5,13 @@ import SwiftUI
 
 enum RightTab { case summary, transcript }
 enum LeftTab { case speakers, fileInfo }
-enum MediaState { case loading, ready, missing }
+enum MediaState {
+    case loading, ready
+    /// Not at its last location (moved, renamed, deleted).
+    case missing
+    /// Its disk or network volume did not answer (e.g. a NAS after leaving the network).
+    case unreachable
+}
 
 enum SummaryState: Equatable {
     case idle
@@ -40,8 +46,12 @@ final class DetailModel {
     private(set) var document: TranscriptDocument?
     private(set) var documentVersion = 0
 
-    var summary: Summary?
-    var summaryState: SummaryState = .idle
+    /// Every summary version of this minute, oldest first.
+    private(set) var summaries: [Summary] = []
+    /// Problem found before a request was sent (no subtitles, API not set up).
+    private(set) var summaryNotice: String?
+    /// Model picked in the summary tab: a favorite's id, or nil for the default in Settings.
+    var chosenModelID: String?
 
     var rightTab: RightTab = .transcript
     var leftTab: LeftTab = .speakers
@@ -51,6 +61,9 @@ final class DetailModel {
     private(set) var mediaURL: URL?
     private(set) var thumbnails: ThumbnailProvider?
     @ObservationIgnored private var mediaAccess: ScopedAccess?
+    /// "重新检测路径" in progress, and whether the last one found nothing.
+    private(set) var isRechecking = false
+    private(set) var recheckFailed = false
 
     // Search (§5.1)
     var searchQuery = ""
@@ -76,7 +89,6 @@ final class DetailModel {
     private(set) var transcriptRevealed = false
     @ObservationIgnored private var closed = false
 
-    @ObservationIgnored private var generationTask: Task<Void, Never>?
     @ObservationIgnored private var autosaveTask: Task<Void, Never>?
 
     init(minute: Minute, app: AppModel) {
@@ -91,7 +103,11 @@ final class DetailModel {
     /// place instead of popping in mid-transition.
     func prepare() {
         transcript = library.loadTranscript(minute.id)
-        summary = library.loadSummary(minute.id)
+        summaries = library.loadSummaries(minute.id)
+        if minute.hasSummary != !summaries.isEmpty {
+            minute.hasSummary = !summaries.isEmpty
+            library.save(minute)
+        }
         rebuildDerived()
         isLoaded = true
         rightTab = .transcript
@@ -101,8 +117,6 @@ final class DetailModel {
     func start() {
         guard !closed else { return }
         transcriptRevealed = true
-        player.onTick = { [weak self] t in self?.handleTick(t) }
-        player.onSeekFinished = { [weak self] t in self?.refreshHighlight(at: t) }
         Task { await loadMedia() }
         autosaveTask = Task { [weak self] in
             while !Task.isCancelled {
@@ -117,7 +131,7 @@ final class DetailModel {
         closed = true
         persistPosition()
         autosaveTask?.cancel()
-        generationTask?.cancel()
+        // Summary generation is not cancelled: it belongs to the app and finishes in the background.
         searchTask?.cancel()
         thumbnails?.cancel()
         player.teardown()
@@ -143,41 +157,117 @@ final class DetailModel {
 
     var useHours: Bool { TimeFormat.usesHours(totalDuration: duration) }
 
-    func loadMedia() async {
-        mediaState = .loading
-        guard let resolved = Bookmarks.resolve(minute.mediaBookmark) else {
+    /// Finds the media off the main thread (never mounting a network volume unless asked)
+    /// and starts the player.
+    func loadMedia(allowMounting: Bool = false, showLoading: Bool = true) async {
+        if showLoading { mediaState = .loading }
+        let outcome = await locateMedia(allowMounting: allowMounting)
+        guard !closed else { return }
+        switch outcome {
+        case .missing:
             mediaState = .missing
-            return
+        case .unreachable:
+            mediaState = .unreachable
+        case .found(let url, let fresh):
+            attach(url: url, freshBookmark: fresh, resumeAt: nil)
         }
-        let url = resolved.url
-        let access = ScopedAccess(url: url)
-        guard FileManager.default.fileExists(atPath: url.path) else {
-            access.stop()
-            mediaState = .missing
-            return
+    }
+
+    private func locateMedia(allowMounting: Bool) async -> MediaLocator.Outcome {
+        if minute.storage == .imported {
+            return await MediaLocator.locateLocal(library.importedMediaURL(minute))
         }
-        if resolved.isStale || url.path != minute.mediaPath {
-            if let fresh = Bookmarks.make(for: url) { minute.mediaBookmark = fresh }
-            minute.mediaPath = url.path
-            minute.mediaFileName = url.lastPathComponent
-            library.save(minute)
+        return await MediaLocator.locate(bookmark: minute.mediaBookmark, path: minute.mediaPath, allowMounting: allowMounting)
+    }
+
+    private func wirePlayer() {
+        player.onTick = { [weak self] t in self?.handleTick(t) }
+        player.onSeekFinished = { [weak self] t in self?.refreshHighlight(at: t) }
+    }
+
+    private func attach(url: URL, freshBookmark: Data?, resumeAt: Double?) {
+        if minute.storage == .linked {
+            var changed = false
+            if let fresh = freshBookmark {
+                minute.mediaBookmark = fresh
+                changed = true
+            }
+            if url.path != minute.mediaPath {
+                minute.mediaPath = url.path
+                minute.mediaFileName = url.lastPathComponent
+                changed = true
+            }
+            if changed { library.save(minute) }
         }
-        mediaAccess = access
+        mediaAccess?.stop()
+        mediaAccess = ScopedAccess(url: url)
         mediaURL = url
+        wirePlayer()
         let g = settings.general
         player.load(url: url, knownDuration: minute.duration, rate: g.playbackRate, volume: g.volume)
         mediaState = .ready
+        recheckFailed = false
         if !minute.isAudioOnly { thumbnails = ThumbnailProvider(url: url) }
-        let resume = minute.lastPlaybackPosition
+        let resume = resumeAt ?? minute.lastPlaybackPosition
         if resume > 1 && (minute.duration <= 0 || resume < minute.duration - 2) {
             player.seek(to: resume)
         }
         refreshHighlight(at: resume)
     }
 
-    /// "重新定位" / "更换媒体文件".
+    /// "重新检测路径": looks again at the last known location (mounting its volume if needed),
+    /// so a file moved back where it was comes back. `silent` is the automatic check when the
+    /// app becomes active again.
+    func recheckMedia(silent: Bool = false) {
+        guard !isRechecking, mediaState == .missing || mediaState == .unreachable else { return }
+        isRechecking = true
+        if !silent { recheckFailed = false }
+        Task {
+            await loadMedia(allowMounting: !silent, showLoading: false)
+            isRechecking = false
+            if mediaState == .ready {
+                if !silent { app.showToast(L("已重新找到源文件")) }
+            } else if !silent {
+                recheckFailed = true
+            }
+        }
+    }
+
+    /// The media was copied into the app ("导入到应用"): play from the copy, same position.
+    func mediaMovedIntoApp() {
+        guard let m = library.minute(minute.id) else { return }
+        minute.storage = m.storage
+        minute.mediaPath = m.mediaPath
+        minute.mediaFileName = m.mediaFileName
+        minute.mediaBookmark = m.mediaBookmark
+        minute.mediaSize = m.mediaSize
+        let wasPlaying = player.isPlaying
+        let position = mediaState == .ready ? player.currentTime : minute.lastPlaybackPosition
+        player.teardown()
+        thumbnails?.cancel()
+        thumbnails = nil
+        mediaAccess?.stop()
+        mediaAccess = nil
+        Task {
+            let outcome = await MediaLocator.locateLocal(library.importedMediaURL(minute))
+            guard !closed else { return }
+            if case .found(let url, _) = outcome {
+                attach(url: url, freshBookmark: nil, resumeAt: position)
+                if wasPlaying { player.play() }
+            } else {
+                mediaState = .missing
+            }
+        }
+    }
+
+    /// "重新定位" / "更换媒体文件". A linked minute links to the new file; a minute whose media
+    /// is in the app gets a copy of the new file instead.
     func relocateMedia() {
         guard let url = FilePanels.chooseMedia() else { return }
+        if minute.storage == .imported {
+            replaceImportedMedia(with: url)
+            return
+        }
         let access = ScopedAccess(url: url)
         defer { access.stop() }
         guard let bookmark = Bookmarks.make(for: url) else {
@@ -192,14 +282,13 @@ final class DetailModel {
         minute.mediaPath = url.path
         minute.mediaFileName = url.lastPathComponent
         minute.isAudioOnly = MediaTypes.kind(of: url) == .audio
+        minute.mediaSize = Library.fileSize(of: url)
         Task {
             if let info = try? await MediaInspector.inspect(url: url) {
                 minute.duration = info.duration
                 minute.isAudioOnly = !info.hasVideo
             }
             library.save(minute)
-            player.onTick = { [weak self] t in self?.handleTick(t) }
-            player.onSeekFinished = { [weak self] t in self?.refreshHighlight(at: t) }
             await loadMedia()
             if !minute.isAudioOnly, let jpeg = await MediaInspector.coverJPEG(url: url, duration: minute.duration) {
                 library.setThumbnail(jpeg, id: minute.id)
@@ -207,14 +296,49 @@ final class DetailModel {
         }
     }
 
-    func revealMedia() {
-        if let url = mediaURL {
-            FilePanels.reveal(url)
-        } else if let r = Bookmarks.resolve(minute.mediaBookmark) {
-            let a = ScopedAccess(url: r.url)
-            FilePanels.reveal(r.url)
-            a.stop()
+    private func replaceImportedMedia(with url: URL) {
+        let id = minute.id
+        guard app.copyingMedia[id] == nil else { return }
+        player.teardown()
+        thumbnails = nil
+        mediaAccess?.stop()
+        mediaAccess = nil
+        mediaState = .loading
+        app.copyingMedia[id] = 0
+        let old = library.importedMediaURL(minute)
+        let dest = library.mediaDirectory(id).appendingPathComponent(url.lastPathComponent)
+        Task {
+            let access = ScopedAccess(url: url)
+            defer { access.stop() }
+            do {
+                try await MediaCopier.copy(from: url, to: dest) { [weak self] p in
+                    self?.app.copyingMedia[id] = p
+                }
+                app.copyingMedia[id] = nil
+                if old.path != dest.path { try? FileManager.default.removeItem(at: old) }
+                minute.mediaFileName = dest.lastPathComponent
+                minute.mediaPath = dest.path
+                minute.mediaSize = Library.fileSize(of: dest)
+                minute.isAudioOnly = MediaTypes.kind(of: url) == .audio
+                if let info = try? await MediaInspector.inspect(url: dest) {
+                    minute.duration = info.duration
+                    minute.isAudioOnly = !info.hasVideo
+                }
+                library.save(minute)
+                await loadMedia()
+                if !minute.isAudioOnly, let jpeg = await MediaInspector.coverJPEG(url: dest, duration: minute.duration) {
+                    library.setThumbnail(jpeg, id: minute.id)
+                }
+            } catch {
+                app.copyingMedia[id] = nil
+                Alerts.error(L("导入应用失败"), error.localizedDescription)
+                await loadMedia()
+            }
         }
+    }
+
+    func revealMedia() {
+        app.revealMedia(minute.id)
     }
 
     // MARK: Transcript
@@ -458,82 +582,129 @@ final class DetailModel {
         return s.transcriptHash != transcriptHash
     }
 
-    var isGenerating: Bool {
-        if case .generating = summaryState { return true }
-        return false
+    var isGenerating: Bool { app.isGeneratingSummary(minute.id) }
+
+    /// Shown version: the one picked last, else the newest.
+    var summary: Summary? {
+        summaries.first { $0.id == minute.activeSummaryID } ?? summaries.last
     }
+
+    var summaryState: SummaryState {
+        if let job = app.summaryJob(minute.id) {
+            switch job.phase {
+            case .running(let text): return .generating(text)
+            case .failed(let message): return .failed(message)
+            }
+        }
+        if let notice = summaryNotice { return .failed(notice) }
+        return .idle
+    }
+
+    /// Model of the generation in progress.
+    var generatingModelName: String? { app.summaryJob(minute.id)?.modelName }
+
+    var chosenFavorite: FavoriteModel? {
+        guard let id = chosenModelID else { return nil }
+        return settings.favorites.first { $0.id == id }
+    }
+
+    var chosenModelName: String { chosenFavorite?.model ?? settings.llm.model }
 
     var chapterStarts: [Double] { summary?.chapters.map(\.time) ?? [] }
 
     func chapterTitle(at t: Double) -> String? { summary?.chapter(at: t)?.title }
 
+    /// Generates a new version with the model picked in the summary tab. It runs in the
+    /// background (`AppModel.startSummary`), so leaving the page does not stop it.
     func generateSummary() {
+        summaryNotice = nil
+        app.clearSummaryFailure(minute.id)
         guard let tr = transcript else {
-            summaryState = .failed(L("请先导入 SRT 字幕，再生成智能纪要"))
+            summaryNotice = L("请先导入 SRT 字幕，再生成智能纪要")
             return
         }
-        let config = settings.llm
+        var config = settings.llm
+        var apiKey = settings.apiKey
+        if let fav = chosenFavorite {
+            config = fav.applied(to: config)
+            apiKey = settings.apiKey(forPreset: fav.presetID)
+        }
         guard config.isConfigured else {
-            summaryState = .failed(L("请先在 API 设置中填写 Base URL 与模型"))
+            summaryNotice = L("请先在 API 设置中填写 Base URL 与模型")
             return
         }
-        generationTask?.cancel()
         let input = SummaryInput.make(title: minute.title, duration: duration, transcript: tr, paragraphs: paragraphs,
                                       insertComma: settings.general.insertComma, language: config.outputLanguage)
-        let apiKey = settings.apiKey
-        let hash = transcriptHash
-        let generator = SummaryGenerator(client: LLMClient(compat: settings.compatStore))
-        summaryState = .generating(L("正在生成…"))
+        app.startSummary(minuteID: minute.id, input: input, config: config, apiKey: apiKey,
+                         transcriptHash: transcriptHash, cuesHash: tr.cuesHash)
         rightTab = .summary
-        let model = self
-        generationTask = Task {
-            do {
-                let draft = try await generator.generate(input: input, config: config, apiKey: apiKey, progress: { p in
-                    Task { @MainActor in model.updateProgress(p) }
-                })
-                if Task.isCancelled { return }
-                model.finishGeneration(draft, modelName: config.model, hash: hash)
-            } catch {
-                if Task.isCancelled { return }
-                model.failGeneration(error)
-            }
-        }
-    }
-
-    private func updateProgress(_ p: SummaryProgress) {
-        guard isGenerating else { return }
-        switch p {
-        case .single: summaryState = .generating(L("正在生成…"))
-        case .part(let i, let n): summaryState = .generating(L("正在生成… 第 {0}/{1} 部分", i, n))
-        case .merging: summaryState = .generating(L("正在合并各部分…"))
-        }
-    }
-
-    private func finishGeneration(_ draft: SummaryDraft, modelName: String, hash: String) {
-        let s = Summary(draft: draft, model: modelName, generatedAt: Date(), transcriptHash: hash)
-        summary = s
-        summaryState = .idle
-        library.saveSummary(s, id: minute.id)
-        minute.hasSummary = true
-        library.save(minute)
-    }
-
-    private func failGeneration(_ error: Error) {
-        if let e = error as? LLMError, e == .cancelled {
-            summaryState = .idle
-            return
-        }
-        if error is CancellationError {
-            summaryState = .idle
-            return
-        }
-        summaryState = .failed(error.localizedDescription)
     }
 
     func cancelGeneration() {
-        generationTask?.cancel()
-        generationTask = nil
-        summaryState = .idle
+        app.cancelSummary(minute.id)
+    }
+
+    /// A version was added (generated or imported) while this page is open.
+    func summariesChanged(_ list: [Summary], select id: UUID?) {
+        summaries = list
+        if let id { minute.activeSummaryID = id }
+        minute.hasSummary = !list.isEmpty
+        library.save(minute)
+    }
+
+    func selectSummary(_ id: UUID) {
+        guard summaries.contains(where: { $0.id == id }), minute.activeSummaryID != id else { return }
+        minute.activeSummaryID = id
+        library.save(minute)
+    }
+
+    func requestDeleteSummary(_ id: UUID) {
+        guard let s = summaries.first(where: { $0.id == id }) else { return }
+        app.confirmRequest = ConfirmRequest(
+            title: L("删除这份纪要？"),
+            message: L("{0} · {1} 生成的纪要会被删除，其他版本不受影响。", s.model, TimeFormat.createdDate(s.generatedAt)),
+            confirmTitle: L("删除")
+        ) { [weak self] in
+            self?.deleteSummary(id)
+        }
+    }
+
+    private func deleteSummary(_ id: UUID) {
+        summaries.removeAll { $0.id == id }
+        library.saveSummaries(summaries, id: minute.id)
+        if minute.activeSummaryID == id { minute.activeSummaryID = summaries.last?.id }
+        minute.hasSummary = !summaries.isEmpty
+        library.save(minute)
+        app.showToast(L("已删除纪要"))
+    }
+
+    // MARK: Summary files
+
+    func exportSummaryFile() {
+        guard let s = summary else { return }
+        let file = SummaryFile.make(summary: s, minute: minute, transcript: transcript, app: AppModel.appIdentity)
+        do {
+            let data = try file.encoded()
+            FilePanels.saveData(data, suggestedName: "\(minute.title) · \(s.model)", fileExtension: SummaryFile.fileExtension)
+        } catch {
+            Alerts.error(L("导出失败"), error.localizedDescription)
+        }
+    }
+
+    func chooseAndImportSummaryFile() {
+        guard let url = FilePanels.chooseSummaryFile() else { return }
+        importSummaryFile(url)
+    }
+
+    /// Checks the file against this minute and asks before importing when they differ.
+    func importSummaryFile(_ url: URL) {
+        do {
+            let file = try app.readSummaryFile(url)
+            app.confirmAndImport(file, into: minute.id)
+            rightTab = .summary
+        } catch {
+            Alerts.error(L("无法导入纪要"), L("{0}：{1}", url.lastPathComponent, error.localizedDescription))
+        }
     }
 
     func copySummaryMarkdown() {
@@ -571,8 +742,13 @@ final class DetailModel {
         var out: [(String, Bool)] = []
         guard isLoaded else { return out }
         if mediaState == .missing { out.append((L("媒体缺失"), true)) }
+        if mediaState == .unreachable { out.append((L("无法访问源文件"), true)) }
         if transcript == nil { out.append((L("无字幕"), true)) }
-        if summary != nil { out.append((L("已生成纪要"), false)) }
+        if summaries.count > 1 {
+            out.append((L("{0} 份纪要", summaries.count), false))
+        } else if !summaries.isEmpty {
+            out.append((L("已生成纪要"), false))
+        }
         return out
     }
 

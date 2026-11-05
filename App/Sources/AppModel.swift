@@ -54,6 +54,11 @@ struct ConfirmRequest: Identifiable {
     var cancelTitle = L("取消")
     /// Shown in bold under the message (e.g. that the original media file is kept).
     var emphasis: String? = nil
+    /// Red confirm button and warning icon; false for a neutral (blue) confirmation.
+    var destructive = true
+    /// Optional checkbox under the message; when it is ticked, `onConfirmChecked` runs instead.
+    var checkbox: String? = nil
+    var onConfirmChecked: (() -> Void)? = nil
     var onConfirm: () -> Void
 }
 
@@ -83,6 +88,8 @@ enum ListSort: String, CaseIterable, Identifiable {
 struct ImportDraft: Equatable {
     var media: URL?
     var subtitle: URL?
+    /// Link to the file instead of copying it into the app.
+    var linkOnly = false
 }
 
 @MainActor
@@ -117,7 +124,20 @@ final class AppModel {
     /// Folders picked with a drag across the sidebar (or ⌘-click), for batch actions.
     var folderSelection: Set<UUID> = []
 
-    var isDialogOpen: Bool { confirmRequest != nil || moveTarget != nil || folderInfoTarget != nil }
+    /// Batch import waiting for review.
+    var importReview: ImportReview?
+    var importProgress: ImportProgress?
+    /// Media being copied into the app for "导入到应用", with progress 0…1.
+    var copyingMedia: [UUID: Double] = [:]
+
+    /// Summary generation per minute; it keeps running when the detail page closes.
+    var summaryJobs: [UUID: SummaryJob] = [:]
+    @ObservationIgnored var summaryTasks: [UUID: Task<Void, Never>] = [:]
+    @ObservationIgnored private var importChain: Task<Void, Never>?
+
+    var isDialogOpen: Bool {
+        confirmRequest != nil || moveTarget != nil || folderInfoTarget != nil || importReview != nil
+    }
 
     @ObservationIgnored weak var mainWindow: NSWindow?
     /// Traffic-light buttons are hidden in full screen, so top bars can start at the left edge.
@@ -233,11 +253,14 @@ final class AppModel {
         confirmRequest = ConfirmRequest(
             title: L("删除文件夹「{0}」？", f.name),
             message: count > 0 ? L("文件夹里的 {0} 个妙记不会被删除，仍会保留在「全部」中。", count) : L("这个文件夹是空的。"),
-            confirmTitle: L("删除文件夹")
+            confirmTitle: L("删除文件夹"),
+            checkbox: count > 0 ? L("同时删除文件夹内的 {0} 个妙记", count) : nil,
+            onConfirmChecked: { [weak self] in self?.requestDeleteFoldersWithMinutes([id]) }
         ) { [weak self] in
             guard let self else { return }
             if self.section == .folder(id) { self.section = .all }
             self.library.deleteFolder(id)
+            self.folderSelection.remove(id)
             self.showToast(L("已删除文件夹"))
         }
     }
@@ -254,13 +277,38 @@ final class AppModel {
         confirmRequest = ConfirmRequest(
             title: L("删除 {0} 个文件夹？", targets.count),
             message: count > 0 ? L("这些文件夹里的 {0} 个妙记不会被删除，仍会保留在「全部」中。", count) : L("这些文件夹都是空的。"),
-            confirmTitle: L("删除文件夹")
+            confirmTitle: L("删除文件夹"),
+            checkbox: count > 0 ? L("同时删除文件夹内的 {0} 个妙记", count) : nil,
+            onConfirmChecked: { [weak self] in self?.requestDeleteFoldersWithMinutes(Set(targets.map(\.id))) }
         ) { [weak self] in
+            self?.deleteFolders(Set(targets.map(\.id)))
+        }
+    }
+
+    private func deleteFolders(_ ids: Set<UUID>) {
+        let targets = library.folders.filter { ids.contains($0.id) }
+        if case .folder(let current) = section, ids.contains(current) { section = .all }
+        for f in targets { library.deleteFolder(f.id) }
+        folderSelection.subtract(ids)
+        showToast(targets.count == 1 ? L("已删除文件夹") : L("已删除 {0} 个文件夹", targets.count))
+    }
+
+    /// Second step after "同时删除文件夹内的妙记": the same confirmation as deleting minutes.
+    private func requestDeleteFoldersWithMinutes(_ folderIDs: Set<UUID>) {
+        let targets = library.folders.filter { folderIDs.contains($0.id) }
+        guard !targets.isEmpty else { return }
+        let minuteIDs = Set(library.minutes.filter { m in
+            m.deletedAt == nil && m.folderID.map { folderIDs.contains($0) } == true
+        }.map(\.id))
+        let title = targets.count == 1
+            ? L("删除文件夹「{0}」，并将其中 {1} 个妙记移到回收站？", targets[0].name, minuteIDs.count)
+            : L("删除 {0} 个文件夹，并将其中 {1} 个妙记移到回收站？", targets.count, minuteIDs.count)
+        confirmRequest = ConfirmRequest(title: title, message: L("移到回收站后可以随时恢复。"),
+                                        confirmTitle: L("删除并移到回收站"),
+                                        emphasis: sourceFileNote(minuteIDs, forever: false)) { [weak self] in
             guard let self else { return }
-            if case .folder(let current) = self.section, ids.contains(current) { self.section = .all }
-            for f in targets { self.library.deleteFolder(f.id) }
-            self.folderSelection.subtract(ids)
-            self.showToast(L("已删除 {0} 个文件夹", targets.count))
+            self.moveToTrash(minuteIDs)
+            self.deleteFolders(folderIDs)
         }
     }
 
@@ -371,9 +419,30 @@ final class AppModel {
             title = L("将 {0} 个妙记移到回收站？", ids.count)
         }
         confirmRequest = ConfirmRequest(title: title, message: L("移到回收站后可以随时恢复。"),
-                                        confirmTitle: L("移到回收站"), emphasis: L("原始媒体文件不会被删除。")) { [weak self] in
+                                        confirmTitle: L("移到回收站"), emphasis: sourceFileNote(ids, forever: false)) { [weak self] in
             self?.moveToTrash(ids)
         }
+    }
+
+    /// What happens to the media files: copies inside the app go with the minute, linked
+    /// originals are never touched.
+    func sourceFileNote(_ ids: Set<UUID>, forever: Bool) -> String {
+        let ms = ids.compactMap { library.minute($0) }
+        let imported = ms.filter { $0.storage == .imported }.count
+        let linked = ms.count - imported
+        if imported == 0 { return L("只删除妙记，链接的原始媒体文件不会被删除。") }
+        if forever {
+            if linked == 0 {
+                return ms.count == 1 ? L("这个妙记的源文件保存在应用内，会和妙记一起删除。")
+                                     : L("这些妙记的源文件保存在应用内，会和妙记一起删除。")
+            }
+            return L("其中 {0} 个妙记的源文件保存在应用内，会一起删除；另外 {1} 个只链接了路径，原始媒体文件不会被删除。", imported, linked)
+        }
+        if linked == 0 {
+            return ms.count == 1 ? L("这个妙记的源文件保存在应用内，在回收站彻底删除时会一起删除。")
+                                 : L("这些妙记的源文件保存在应用内，在回收站彻底删除时会一起删除。")
+        }
+        return L("其中 {0} 个妙记的源文件保存在应用内，彻底删除时会一起删除；另外 {1} 个只链接了路径，原始媒体文件不会被删除。", imported, linked)
     }
 
     func moveToTrash(_ ids: Set<UUID>) {
@@ -395,21 +464,90 @@ final class AppModel {
         guard !ids.isEmpty else { return }
         confirmRequest = ConfirmRequest(title: ids.count == 1 ? L("彻底删除这个妙记？") : L("彻底删除 {0} 个妙记？", ids.count),
                                         message: L("删除后妙记的文字记录和纪要无法恢复。"),
-                                        confirmTitle: L("彻底删除"), emphasis: L("原始媒体文件不会被删除。")) { [weak self] in
+                                        confirmTitle: L("彻底删除"), emphasis: sourceFileNote(ids, forever: true)) { [weak self] in
             guard let self else { return }
+            for id in ids { self.cancelSummary(id) }
             self.library.deletePermanently(ids)
             self.selection.subtract(ids)
         }
     }
 
+    /// Finder never mounts or waits on an unreachable volume from here.
     func revealMedia(_ id: UUID) {
-        guard let m = library.minute(id), let r = Bookmarks.resolve(m.mediaBookmark) else {
-            Alerts.error(L("找不到媒体文件"), L("文件可能已被移动或删除。打开妙记后可以「重新定位」。"))
-            return
+        guard let m = library.minute(id) else { return }
+        Task {
+            let outcome: MediaLocator.Outcome
+            if m.storage == .imported {
+                outcome = await MediaLocator.locateLocal(library.importedMediaURL(m))
+            } else {
+                outcome = await MediaLocator.locate(bookmark: m.mediaBookmark, path: m.mediaPath, allowMounting: false)
+            }
+            switch outcome {
+            case .found(let url, _):
+                let access = ScopedAccess(url: url)
+                FilePanels.reveal(url)
+                access.stop()
+            case .missing:
+                Alerts.error(L("找不到媒体文件"), L("文件可能已被移动或删除。打开妙记后可以「重新检测路径」或「重新定位」。"))
+            case .unreachable:
+                Alerts.error(L("无法访问源文件所在位置"), L("所在的磁盘或网络位置（如 NAS）暂时没有响应。"))
+            }
         }
-        let access = ScopedAccess(url: r.url)
-        FilePanels.reveal(r.url)
-        access.stop()
+    }
+
+    // MARK: Import into the app
+
+    /// Copies a linked minute's media into the app. One way: it cannot become a link again.
+    func requestImportIntoApp(_ id: UUID) {
+        guard let m = library.minute(id), m.storage == .linked else { return }
+        let size = (m.mediaSize ?? 0) > 0 ? L("（{0}）", AppModel.byteText(m.mediaSize ?? 0)) : ""
+        confirmRequest = ConfirmRequest(
+            title: L("将「{0}」的源文件导入应用？", m.title),
+            message: L("会把源文件复制一份{0}保存在应用内。之后原文件移动、改名，或所在的磁盘、NAS 断开，都不影响播放。", size),
+            confirmTitle: L("导入到应用"),
+            emphasis: L("导入后不能再改回链接路径，只能连同妙记一起删除。"),
+            destructive: false
+        ) { [weak self] in
+            self?.importIntoApp(id)
+        }
+    }
+
+    private func importIntoApp(_ id: UUID) {
+        guard let m = library.minute(id), m.storage == .linked, copyingMedia[id] == nil else { return }
+        copyingMedia[id] = 0
+        Task {
+            let outcome = await MediaLocator.locate(bookmark: m.mediaBookmark, path: m.mediaPath, allowMounting: true)
+            guard case .found(let url, _) = outcome else {
+                copyingMedia[id] = nil
+                Alerts.error(L("找不到源文件"), L("请先在妙记里「重新检测路径」或「重新定位」，再导入应用。"))
+                return
+            }
+            let access = ScopedAccess(url: url)
+            defer { access.stop() }
+            let dest = library.mediaDirectory(id).appendingPathComponent(url.lastPathComponent)
+            do {
+                try await MediaCopier.copy(from: url, to: dest) { [weak self] p in
+                    if self?.copyingMedia[id] != nil { self?.copyingMedia[id] = p }
+                }
+                copyingMedia[id] = nil
+                guard library.minute(id) != nil else {
+                    try? FileManager.default.removeItem(at: dest)
+                    return
+                }
+                library.update(id) { m in
+                    m.storage = .imported
+                    m.mediaPath = dest.path
+                    m.mediaFileName = dest.lastPathComponent
+                    m.mediaBookmark = Data()
+                    if m.mediaSize == nil { m.mediaSize = Library.fileSize(of: dest) }
+                }
+                if let d = detail, d.minute.id == id { d.mediaMovedIntoApp() }
+                showToast(L("已将源文件导入应用"))
+            } catch {
+                copyingMedia[id] = nil
+                Alerts.error(L("导入应用失败"), error.localizedDescription)
+            }
+        }
     }
 
     func reimportSRT(_ id: UUID) {
@@ -434,11 +572,19 @@ final class AppModel {
         importURLs([folder])
     }
 
-    /// Files and/or folders from drag-and-drop or panels; pairs media with SRTs automatically.
+    /// Files and/or folders from drag-and-drop or panels. Media is paired with SRTs and shown
+    /// in the review dialog before anything is imported.
     func importURLs(_ urls: [URL]) {
         let files = FilePanels.expand(urls)
+        let summaryFiles = files.filter(MediaTypes.isSummaryFile)
         let media = files.filter(MediaTypes.isMedia)
         let subtitles = files.filter(MediaTypes.isSubtitle)
+        let unsupported = files.filter(MediaTypes.isUnsupported)
+
+        if !summaryFiles.isEmpty {
+            importSummaryFiles(summaryFiles)
+            if media.isEmpty { return }
+        }
 
         if media.isEmpty {
             if subtitles.count == 1, let srt = subtitles.first {
@@ -449,63 +595,88 @@ final class AppModel {
                 }
             } else if !subtitles.isEmpty {
                 Alerts.info(L("请同时选择音视频文件"), L("字幕需要与对应的音视频一起导入。"))
+            } else if !unsupported.isEmpty {
+                Alerts.info(L("没有可导入的文件"),
+                            L("这些文件的格式不受支持：{0}\n\n支持的媒体：mp4 / mov / m4v / mp3 / m4a / wav / aac；字幕：srt。",
+                              unsupported.prefix(5).map(\.lastPathComponent).joined(separator: "\n")))
             } else if !files.isEmpty || !urls.isEmpty {
                 Alerts.info(L("没有可导入的文件"), L("支持的媒体：mp4 / mov / m4v / mp3 / m4a / wav / aac；字幕：srt。"))
             }
             return
         }
 
-        var pairs: [FilePairing.Pair] = []
-        var leftoverSubtitles: [URL] = []
+        let suffixes = settings.general.filenameSuffixes
+        var rows: [ImportReviewRow] = []
         if media.count == 1 && subtitles.count <= 1 {
-            pairs = [FilePairing.Pair(media: media[0], subtitle: subtitles.first)]
+            let m = media[0]
+            let guessed = subtitles.first.map {
+                FilePairing.pairingKey($0, suffixes: suffixes) != FilePairing.pairingKey(m, suffixes: suffixes)
+            } ?? false
+            rows = [ImportReviewRow(media: m, subtitle: subtitles.first, guessed: guessed,
+                                    hasVideo: MediaTypes.kind(of: m) == .video)]
         } else {
-            let result = FilePairing.pair(media: media, subtitles: subtitles, suffixes: settings.general.filenameSuffixes)
-            pairs = result.pairs
-            for s in result.suggestions {
-                let use = Alerts.confirm(L("使用「{0}」作为字幕？", s.subtitle.lastPathComponent),
-                                         L("没有找到与「{0}」同名的 SRT，同一文件夹中只有这一个字幕文件。", s.media.lastPathComponent),
-                                         ok: L("使用"), cancel: L("不使用"))
-                if use {
-                    pairs.append(FilePairing.Pair(media: s.media, subtitle: s.subtitle))
-                } else {
-                    pairs.append(FilePairing.Pair(media: s.media, subtitle: nil))
-                    leftoverSubtitles.append(s.subtitle)
-                }
+            let result = FilePairing.pair(media: media, subtitles: subtitles, suffixes: suffixes)
+            rows = result.pairs.map {
+                ImportReviewRow(media: $0.media, subtitle: $0.subtitle, hasVideo: MediaTypes.kind(of: $0.media) == .video)
             }
-            leftoverSubtitles += result.unmatchedSubtitles
+            rows += result.suggestions.map {
+                ImportReviewRow(media: $0.media, subtitle: $0.subtitle, guessed: true,
+                                hasVideo: MediaTypes.kind(of: $0.media) == .video)
+            }
+            rows.sort { $0.media.path.localizedStandardCompare($1.media.path) == .orderedAscending }
         }
-        let leftovers = leftoverSubtitles
-        let finalPairs = pairs
-        Task {
-            await runImport(finalPairs)
-            if !leftovers.isEmpty {
-                let names = leftovers.map(\.lastPathComponent).joined(separator: "\n")
-                Alerts.info(L("有 {0} 个字幕未能配对", leftovers.count),
-                            L("{0}\n\n可以打开对应的妙记，在「··· → 重新导入 SRT」或文字记录空状态中手动指定。", names))
+        var sourceName: String?
+        if urls.count == 1, let only = urls.first {
+            var isDir: ObjCBool = false
+            if FileManager.default.fileExists(atPath: only.path, isDirectory: &isDir), isDir.boolValue {
+                sourceName = only.lastPathComponent
             }
         }
+        let review = ImportReview(rows: rows, subtitles: subtitles, skipped: unsupported, sourceName: sourceName,
+                                  folderID: currentFolderID)
+        importReview = review
+        review.loadDetails()
+    }
+
+    /// "导入" in the review dialog.
+    func confirmImportReview(_ review: ImportReview) {
+        let items = review.includedRows.map { ImportItem(media: $0.media, subtitle: $0.subtitle, cover: $0.thumbnailJPEG) }
+        let storage: MediaStorage = review.linkOnly ? .linked : .imported
+        enqueueImport(items, storage: storage, folderID: review.folderID)
     }
 
     func importFromDialog() {
         guard let media = importDraft.media else { return }
-        let pair = FilePairing.Pair(media: media, subtitle: importDraft.subtitle)
+        let item = ImportItem(media: media, subtitle: importDraft.subtitle, cover: nil)
+        let storage: MediaStorage = importDraft.linkOnly ? .linked : .imported
         showImportDialog = false
-        Task { await runImport([pair]) }
+        enqueueImport([item], storage: storage, folderID: currentFolderID)
     }
 
-    private func runImport(_ pairs: [FilePairing.Pair]) async {
-        guard !pairs.isEmpty else { return }
-        let targetFolder = currentFolderID
+    /// Imports run one batch after another, so a second drop waits for the first.
+    private func enqueueImport(_ items: [ImportItem], storage: MediaStorage, folderID: UUID?) {
+        let previous = importChain
+        importChain = Task {
+            await previous?.value
+            await runImport(items, storage: storage, folderID: folderID)
+        }
+    }
+
+    private func runImport(_ items: [ImportItem], storage: MediaStorage, folderID: UUID?) async {
+        guard !items.isEmpty else { return }
         isImporting = true
-        defer { isImporting = false }
+        defer {
+            isImporting = false
+            importProgress = nil
+        }
         var created: [(Minute, Transcript?)] = []
         var failures: [String] = []
-        for pair in pairs {
+        for (i, item) in items.enumerated() {
+            importProgress = ImportProgress(index: i + 1, total: items.count, fraction: storage == .imported ? 0 : nil)
             do {
-                created.append(try await createMinute(media: pair.media, subtitle: pair.subtitle, folderID: targetFolder))
+                created.append(try await createMinute(item, storage: storage, folderID: folderID))
             } catch {
-                failures.append(L("{0}：{1}", pair.media.lastPathComponent, error.localizedDescription))
+                failures.append(L("{0}：{1}", item.media.lastPathComponent, error.localizedDescription))
             }
         }
         if section == .trash { section = .all }
@@ -529,30 +700,49 @@ final class AppModel {
         var errorDescription: String? { message }
     }
 
-    private func createMinute(media: URL, subtitle: URL?, folderID: UUID?) async throws -> (Minute, Transcript?) {
+    private func createMinute(_ item: ImportItem, storage: MediaStorage, folderID: UUID?) async throws -> (Minute, Transcript?) {
+        let media = item.media
         let access = ScopedAccess(url: media)
         defer { access.stop() }
-        guard let bookmark = Bookmarks.make(for: media) else {
-            throw ImportError(message: L("无法访问该文件"))
-        }
         let info: MediaInspector.Info
         do {
             info = try await MediaInspector.inspect(url: media)
         } catch {
             throw ImportError(message: L("无法读取媒体：{0}", error.localizedDescription))
         }
+        let id = UUID()
+        var bookmark = Data()
+        var path = media.path
+        if storage == .imported {
+            let dest = library.mediaDirectory(id).appendingPathComponent(media.lastPathComponent)
+            do {
+                try await MediaCopier.copy(from: media, to: dest) { [weak self] p in
+                    guard let self, var progress = self.importProgress else { return }
+                    progress.fraction = p
+                    self.importProgress = progress
+                }
+            } catch {
+                try? FileManager.default.removeItem(at: library.folder(id))
+                throw ImportError(message: L("复制到应用失败：{0}", error.localizedDescription))
+            }
+            path = dest.path
+        } else {
+            guard let b = Bookmarks.make(for: media) else { throw ImportError(message: L("无法访问该文件")) }
+            bookmark = b
+        }
         let baseName = media.deletingPathExtension().lastPathComponent
         let title = FilePairing.normalizedTitle(baseName, suffixes: settings.general.filenameSuffixes)
         let now = Date()
         let createdAt = FilePairing.dateFromFileName(baseName, fallback: now) ?? now
-        var minute = Minute(title: title, createdAt: createdAt, duration: info.duration, mediaBookmark: bookmark,
-                            mediaPath: media.path, mediaFileName: media.lastPathComponent, isAudioOnly: !info.hasVideo)
+        var minute = Minute(id: id, title: title, createdAt: createdAt, duration: info.duration, mediaBookmark: bookmark,
+                            mediaPath: path, mediaFileName: media.lastPathComponent, isAudioOnly: !info.hasVideo)
         minute.folderID = folderID
+        minute.storage = storage
         minute.mediaSize = Library.fileSize(of: media)
         library.save(minute)
 
         var transcript: Transcript?
-        if let subtitle {
+        if let subtitle = item.subtitle {
             do {
                 transcript = try attachSRT(subtitle, toMinute: minute.id).0
                 if let m = library.minute(minute.id) { minute = m }
@@ -560,8 +750,12 @@ final class AppModel {
                 Alerts.error(L("字幕「{0}」解析失败", subtitle.lastPathComponent), error.localizedDescription)
             }
         }
-        if info.hasVideo, let jpeg = await MediaInspector.coverJPEG(url: media, duration: info.duration) {
-            library.setThumbnail(jpeg, id: minute.id)
+        if info.hasVideo {
+            if let cover = item.cover {
+                library.setThumbnail(cover, id: minute.id)
+            } else if let jpeg = await MediaInspector.coverJPEG(url: URL(fileURLWithPath: path), duration: info.duration) {
+                library.setThumbnail(jpeg, id: minute.id)
+            }
         }
         return (minute, transcript)
     }
