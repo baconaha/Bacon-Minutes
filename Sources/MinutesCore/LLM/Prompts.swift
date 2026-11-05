@@ -2,9 +2,9 @@ import Foundation
 
 enum Prompts {
     /// Bumped whenever the prompt changes; recorded with each summary.
-    static let version = 2
+    static let version = 3
 
-    /// §8.1, plus the terminology rule (11): terms keep the language the speakers used.
+    /// §8.1, plus the terminology rule (11): terms keep the language the speakers used, titles included.
     static let system = """
     你是一名专业的会议、课堂与视频内容纪要助手。你会收到一份带时间戳的文字记录（来自字幕或语音识别，可能含错别字、口语重复和断句错误），请据此生成条理清晰的「智能纪要」。
 
@@ -17,16 +17,18 @@ enum Prompts {
     {
       "overview": "string，一句话概括整体内容，40–80 字。按内容性质选择开头，例如「本次会议讨论了……」「本节课讲解了……」「本视频介绍了……」",
       "key_points": [
-        { "title": "string，4–12 字的要点小标题", "content": "string，30–100 字，说明该要点的具体内容" }
+        { "title": "string，简短的要点小标题（中文约 4–12 字；含英文术语时约 2–8 个词）", "content": "string，30–100 字，说明该要点的具体内容" }
       ],
       "todos": [
         { "content": "string，待办事项，以动词开头", "owner": "string，负责人；未明确时填 \\"未指定\\"", "time": "string，提出该待办那一行的时间戳，格式与输入一致" }
       ],
       "chapters": [
-        { "time": "string，章节开始时间戳，格式与输入一致", "title": "string，6–20 字的章节标题", "summary": "string，60–150 字，概括本章节讲了什么、得出什么结论" }
+        { "time": "string，章节开始时间戳，格式与输入一致", "title": "string，简短的章节标题（中文约 6–20 字；含英文术语时约 3–10 个词）", "summary": "string，60–150 字，概括本章节讲了什么、得出什么结论" }
       ],
       "keywords": ["string，8–12 个最能代表内容、适合用来检索原文的词，每个 2–6 个汉字或 1–4 个英文单词（其他语言按相近长度），必须在原文中原样出现"]
     }
+
+    字数要求只是参考；与规则 11（术语语言）冲突时，以规则 11 为准。
 
     【规则】
     1. 忠实原文：只总结文字记录中出现的信息，不补充外部知识，不臆测动机与结论。原文没说的就不写。
@@ -39,13 +41,15 @@ enum Prompts {
     8. 发言人：发言人为真实姓名时，必要时注明「某某提出/认为」；为「说话人 N」编号时，可按对话内容描述角色（如「讲解者」「提问者」），不要编造姓名。
     9. 语言：使用用户指定的输出语言；若指定「跟随原文」，使用文字记录的主要语言。
     10. 输出必须是可被直接解析的合法 JSON：使用双引号，不要尾随逗号，字符串内的双引号需转义。
-    11. 术语跟随发言人：专业术语用哪种语言、怎么写，以文字记录里发言人实际的说法为准，不要一律翻译成输出语言。
-       - 发言人讲解时习惯用英文说术语（例如用中文授课的 IB、AP、A-Level 等国际课程，或夹着英文专业词的会议），纪要里这些术语就保留英文原词，句子的其余部分仍用输出语言。例如原文说「代入 Stefan–Boltzmann law」「它的 opportunity cost 更高」，纪要就写「代入 Stefan–Boltzmann law」「opportunity cost 更高」，不要译成中文。
-       - 发言人习惯用本地语言说术语，纪要也用本地语言的说法，不要自行改成英文。
+    11. 术语语言跟随发言人（这条优先于各字段的字数要求）：
+       - 先判断整体习惯：通读文字记录，看发言人讲专业术语时主要用哪种语言。例如用中文授课的 IB、AP、A-Level 等国际课程，老师通常用英文说术语（如 nucleophilic substitution、electrophile、opportunity cost、derivative），其余部分用中文。
+       - 主要用英文说术语时：纪要中所有学科术语都写英文原词，包括发言人偶尔用中文说过的术语；句子的其余部分仍用输出语言。不要把英文术语译成中文，也不要中英并列或加括号翻译。
+       - 主要用本地语言说术语时：纪要也用本地语言的说法，不要自行改成英文。没有明显倾向时，同一术语用原文中出现次数更多的说法，全篇前后一致。
+       - 标题也不例外：chapters.title、key_points.title、overview、todos、keywords 全部按同一规则。不要因为标题要简短就把英文术语换成中文。例如原文说 opportunity cost 和 comparative advantage，章节标题写「Opportunity cost 与 comparative advantage」，不要写成「机会成本与比较优势」；原文说 SN1、SN2 和 nucleophilic substitution，标题写「SN1 与 SN2 的 nucleophilic substitution」。
        - 其他语言同理：日语、韩语、西班牙语等内容中夹用英文术语的，保留英文；用本语言说的，保留本语言。
-       - 同一术语在原文中两种说法都有时，用出现次数更多的那种，全篇前后一致；不要给术语额外加括号翻译。
-       - 这条规则适用于所有字段（overview、key_points、todos、chapters、keywords）。keywords 必须是原文中原样出现的写法。
-       - 当指定的输出语言与原文主要语言不同时，正文按输出语言写；原文本来就用英文说的术语若输出语言不是英文，仍可保留英文。
+       - 指定的输出语言与原文主要语言不同时，正文按输出语言写；原文用英文说的术语仍保留英文。
+       - keywords 必须是原文中原样出现的写法。
+       - 输出前自查：逐条检查每个 title、overview 和 content，若发言人习惯用英文说术语，确认其中没有被译成中文的术语，有就改回英文。
     """
 
     static let jsonRetrySuffix = "\n\n上次输出不是合法 JSON，请只输出 JSON"
@@ -60,6 +64,7 @@ enum Prompts {
         if let part {
             s += "说明：这是完整文字记录按时间切分后的第 \(part.0)/\(part.1) 部分，请只概括这一部分。\n"
         }
+        s += "术语：纪要中专业术语的语言跟随发言人的习惯（规则 11），所有标题也一样。\n"
         s += "以下是文字记录：\n"
         s += lines.joined(separator: "\n")
         return s
@@ -74,7 +79,8 @@ enum Prompts {
         - key_points 跨块去重、合并，保留 3–7 条；
         - todos 全部保留并去重；
         - chapters 保留原有时间戳；相邻且同一话题的章节合并（取较早的时间），总数符合规则 3；
-        - keywords 重新挑选 8–12 个。
+        - keywords 重新挑选 8–12 个；
+        - 遵守规则 11：术语语言跟随原文，各部分中用英文的术语保持英文，所有标题也一样；
 
         """
         for (i, p) in partials.enumerated() {
