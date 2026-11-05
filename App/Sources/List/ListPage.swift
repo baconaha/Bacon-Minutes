@@ -66,6 +66,7 @@ private struct ListSidebar: View {
                 SidebarItem(title: s.title, icon: s.icon, selected: app.section == s.scope) {
                     app.section = s.scope
                     app.selection = []
+                    app.folderSelection = []
                 }
             }
 
@@ -86,14 +87,7 @@ private struct ListSidebar: View {
             .padding(.top, 16)
             .padding(.bottom, 2)
 
-            ScrollView {
-                VStack(spacing: 2) {
-                    ForEach(app.library.folders) { folder in
-                        FolderRow(app: app, folder: folder)
-                    }
-                }
-            }
-            .scrollIndicators(.never)
+            FolderList(app: app)
 
             LibraryStatsView(stats: app.library.stats())
                 .padding(.top, 10)
@@ -150,6 +144,82 @@ private struct SidebarItemLabel: View {
     }
 }
 
+/// Folder rows with drag-to-select: a drag that starts on empty space draws a selection
+/// rectangle, and every folder it touches turns gray and is selected for batch actions.
+private struct FolderList: View {
+    @Bindable var app: AppModel
+    static let space = "folderList"
+    @State private var frames: [UUID: CGRect] = [:]
+    @State private var marquee: CGRect?
+    @State private var dragIgnored = false
+    @State private var baseSelection: Set<UUID> = []
+
+    var body: some View {
+        GeometryReader { geo in
+            ScrollView {
+                VStack(spacing: 2) {
+                    ForEach(app.library.folders) { folder in
+                        FolderRow(app: app, folder: folder)
+                    }
+                }
+                // Fill the visible height so the empty space below the folders takes clicks and drags.
+                .frame(maxWidth: .infinity, minHeight: geo.size.height, alignment: .top)
+                .contentShape(Rectangle())
+                .coordinateSpace(.named(Self.space))
+                .onPreferenceChange(FolderFramesKey.self) { frames = $0 }
+                .overlay(alignment: .topLeading) {
+                    if let r = marquee {
+                        RoundedRectangle(cornerRadius: 3)
+                            .fill(Color.brand.opacity(0.08))
+                            .overlay(RoundedRectangle(cornerRadius: 3).strokeBorder(Color.brand.opacity(0.5), lineWidth: 1))
+                            .frame(width: r.width, height: r.height)
+                            .offset(x: r.minX, y: r.minY)
+                            .allowsHitTesting(false)
+                    }
+                }
+                .gesture(marqueeGesture)
+                // A click on empty space clears the selection.
+                .onTapGesture { app.folderSelection = [] }
+            }
+            .scrollIndicators(.never)
+        }
+    }
+
+    private var marqueeGesture: some Gesture {
+        DragGesture(minimumDistance: 3, coordinateSpace: .named(Self.space))
+            .onChanged { g in
+                if marquee == nil && !dragIgnored {
+                    // Only from empty space: a drag that starts on a folder belongs to that folder.
+                    if frames.values.contains(where: { $0.contains(g.startLocation) }) {
+                        dragIgnored = true
+                        return
+                    }
+                    baseSelection = NSEvent.modifierFlags.contains(.command) ? app.folderSelection : []
+                    app.selection = []
+                }
+                guard !dragIgnored else { return }
+                let r = CGRect(x: min(g.startLocation.x, g.location.x), y: min(g.startLocation.y, g.location.y),
+                               width: abs(g.location.x - g.startLocation.x), height: abs(g.location.y - g.startLocation.y))
+                marquee = r
+                let touched = Set(frames.filter { $0.value.intersects(r) }.map(\.key))
+                let next = baseSelection.union(touched)
+                if next != app.folderSelection { app.folderSelection = next }
+            }
+            .onEnded { _ in
+                marquee = nil
+                dragIgnored = false
+            }
+    }
+}
+
+private struct FolderFramesKey: PreferenceKey {
+    static let defaultValue: [UUID: CGRect] = [:]
+
+    static func reduce(value: inout [UUID: CGRect], nextValue: () -> [UUID: CGRect]) {
+        value.merge(nextValue()) { $1 }
+    }
+}
+
 private struct FolderRow: View {
     @Bindable var app: AppModel
     let folder: Folder
@@ -158,6 +228,16 @@ private struct FolderRow: View {
 
     private var selected: Bool { app.section == .folder(folder.id) }
     private var editing: Bool { app.renamingFolderID == folder.id }
+    /// Part of a drag / ⌘-click selection.
+    private var inBatch: Bool { app.folderSelection.contains(folder.id) }
+    private var batchActions: Bool { inBatch && app.folderSelection.count > 1 }
+
+    private var fill: Color {
+        if dropTargeted { return .selectionFill }
+        if inBatch { return .divider }
+        if selected { return .selectionFill }
+        return hovering ? .rowHover : .clear
+    }
 
     var body: some View {
         HStack(spacing: 10) {
@@ -174,7 +254,7 @@ private struct FolderRow: View {
             }
             Spacer(minLength: 4)
             if hovering {
-                MoreMenuButton(size: 22, help: L("文件夹操作"), openOnHover: false) { menuItems }
+                MoreMenuButton(size: 22, help: L("文件夹操作"), openOnHover: false) { batchActions ? batchItems : menuItems }
             } else {
                 Text("\(app.library.stats(inFolder: folder.id).count)")
                     .font(.system(size: 12).monospacedDigit())
@@ -187,15 +267,25 @@ private struct FolderRow: View {
         .frame(height: 34)
         .background(
             RoundedRectangle(cornerRadius: 6)
-                .fill(dropTargeted ? Color.selectionFill : (selected ? Color.selectionFill : (hovering ? Color.rowHover : Color.clear)))
+                .fill(fill)
+                .animation(.easeOut(duration: 0.1), value: inBatch)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 6)
                 .strokeBorder(dropTargeted ? Color.brand : Color.clear, lineWidth: 1.5)
         )
+        .background(GeometryReader { g in
+            Color.clear.preference(key: FolderFramesKey.self, value: [folder.id: g.frame(in: .named(FolderList.space))])
+        })
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
         .onTapGesture {
+            if NSEvent.modifierFlags.contains(.command) {
+                // ⌘-click adds or removes one folder from the selection.
+                if inBatch { app.folderSelection.remove(folder.id) } else { app.folderSelection.insert(folder.id) }
+                return
+            }
+            app.folderSelection = []
             app.section = .folder(folder.id)
             app.selection = []
         }
@@ -203,12 +293,29 @@ private struct FolderRow: View {
             handleDrop(providers)
         }
         .contextMenu {
-            Button(L("属性")) { app.folderInfoTarget = folder.id }
-            Button(L("重命名")) { app.renamingFolderID = folder.id }
-            Button(L("导入到此文件夹…")) { app.importIntoFolder(folder.id) }
-            Divider()
-            Button(L("删除文件夹")) { app.requestDeleteFolder(folder.id) }
+            if batchActions {
+                Button(L("取消选择")) { app.folderSelection = [] }
+                Divider()
+                Button(L("删除 {0} 个文件夹", app.folderSelection.count)) { app.requestDeleteFolders(app.folderSelection) }
+            } else {
+                Button(L("属性")) { app.folderInfoTarget = folder.id }
+                Button(L("重命名")) { app.renamingFolderID = folder.id }
+                Button(L("导入到此文件夹…")) { app.importIntoFolder(folder.id) }
+                Divider()
+                Button(L("删除文件夹")) { app.requestDeleteFolder(folder.id) }
+            }
         }
+    }
+
+    /// Menu for a multi-folder selection.
+    private var batchItems: [DropdownItem] {
+        [
+            .button(L("取消选择"), icon: "xmark.circle") { app.folderSelection = [] },
+            .divider,
+            .button(L("删除 {0} 个文件夹", app.folderSelection.count), icon: "trash", destructive: true) {
+                app.requestDeleteFolders(app.folderSelection)
+            },
+        ]
     }
 
     private var menuItems: [DropdownItem] {
@@ -324,6 +431,8 @@ private struct ListContent: View {
             }
         }
         .onChange(of: app.listSearchFocusToken) { searchFocused = true }
+        // Checking recordings ends a folder selection, so ⌫ acts on what was picked last.
+        .onChange(of: app.selection) { if !app.selection.isEmpty { app.folderSelection = [] } }
         .onChange(of: app.listQuery) {
             if !app.listQuery.isEmpty { app.library.ensureSearchIndex() }
         }
@@ -427,7 +536,7 @@ private struct ListContent: View {
                 }
             }) { _ in
                 HStack(spacing: 4) {
-                    Text(app.sort == .created ? L("创建时间") : L("最近打开"))
+                    Text(app.sort.headerTitle)
                     Image(systemName: "chevron.down").font(.system(size: 9))
                 }
                 .contentShape(Rectangle())

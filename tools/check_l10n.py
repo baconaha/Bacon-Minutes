@@ -13,7 +13,7 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 LANGS = ["en", "ja", "ko", "es", "vi", "fr", "pt", "ru"]
 # Keys passed to L() indirectly (ProviderPreset names).
-EXTRA_KEYS = ["阿里云百炼（通义）", "月之暗面 Kimi", "智谱 GLM", "火山方舟（豆包）", "硅基流动", "Ollama（本地）", "LM Studio（本地）", "自定义"]
+EXTRA_KEYS = ["阿里云百炼（通义）", "月之暗面 Kimi", "智谱 GLM", "百度千帆（文心）", "腾讯混元", "火山方舟（豆包）", "硅基流动", "Ollama（本地）", "LM Studio（本地）", "自定义"]
 
 CALL = re.compile(r'\bL\("((?:[^"\\]|\\.)*)"')
 PLACEHOLDER = re.compile(r"\{\d+\}")
