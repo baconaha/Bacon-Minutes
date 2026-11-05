@@ -2,6 +2,20 @@
 
 A local macOS app for managing meeting and lecture recordings. Each item is a local audio or video file plus an imported SRT. You get a click-to-seek transcript, search, speaker stats, folders, and an AI summary generated with your own API key. Built from `minutes-clone-spec.md` v2.
 
+## Media: in the app or linked
+
+Dropping files or a folder opens a review dialog: one row per video with its thumbnail and paired SRT (each can be changed), plus a list of skipped formats such as mkv or ass. By default each file is copied into the app's library (`minutes/<id>/media/`), so moving or deleting the original does nothing to the minute. Ticking "只链接文件路径" keeps only a security-scoped bookmark to the original instead.
+
+Each minute is labelled 应用内 or 链接. A linked minute can be imported into the app later (one way). When its file has moved, the player shows the original path with 重新检测路径 (checks again, mounting the network volume if needed) and 重新定位.
+
+Media lookup never runs on the main thread: bookmark resolution and file checks happen on a background queue with a 4-second limit and never mount a volume when a minute opens. A NAS that has gone off the network shows 无法访问源文件所在位置 instead of freezing the app; while a check on a volume is overdue, further checks on it answer at once.
+
+## Summaries
+
+Generation belongs to the app, not to the page, so it keeps going after you go back to the list (the row shows 纪要生成中, and a toast says when it is done). Every generation is kept as a version in `summaries.json`, with a switcher in the summary tab. Models starred in Settings (☆ in the fetched model list or next to the model field) can be picked per minute; each runs on its own provider endpoint and key.
+
+A summary can be exported as a `.baconsummary` file: JSON with the summary, the model and request parameters, and the source recording (file name, size, duration, SRT name, cue count and a hash of the cue text and timing). Dragging the file onto a minute imports it as another version; when the subtitles, media file or duration differ, the app lists the differences and asks first. Dropped on the list, the file finds its own minute by the subtitle hash. The Windows app reads and writes the same format.
+
 The app is called 培根妙记 in the Chinese UI and Bacon Minutes everywhere else.
 
 ## Build
@@ -59,15 +73,18 @@ Sources/MinutesCore/        platform-independent logic (also compiled into the a
   TimeFormat.swift          all time and date formats (§9.6), per UI language
   Localization.swift        UI languages, L() lookup
   Exporter.swift            SRT / TXT / Markdown export
+  SummaryFile.swift         .baconsummary export/import and metadata checks
   LLM/                      presets, request building, 400 downgrades, parsing, chunking, validation (§7, §8)
 App/Sources/                SwiftUI + AppKit app
   AppModel.swift            navigation, import pipeline, keyboard shortcuts (§11)
+  Common/MediaLocator.swift media lookup off the main thread with a time limit; copying into the app
+  Import/                   import sheet and the batch import review dialog
   Library.swift             on-disk store under Application Support (§9.4)
   List/                     library page, trash, multi-select (§9.5)
   Detail/                   detail page, top bar, speakers / file info (§2, §4)
   Player/                   AVPlayer wrapper, overlay controls, segmented progress bar (§3)
   Transcript/               TextKit 1 NSTextView transcript, search, follow mode (§5)
-  Summary/                  AI summary cards and states (§6)
+  Summary/                  AI summary cards and states (§6), background jobs, summary files
   Settings/                 settings window, API form (§7.1), UI language choice
 App/Resources/*.lproj/      Localizable.strings and localized app names
 Tests/MinutesCoreTests/     XCTest for the core
