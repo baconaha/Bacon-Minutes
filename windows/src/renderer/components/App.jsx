@@ -3,6 +3,7 @@ import {
   route, detail, toast, importDialog, settingsOpen, renameTarget, minutes, selection, section,
   loadLibrary, loadSettings, goBack, requestMoveToTrash, renameMinute, listSearchFocus, call, lm,
   isDialogOpen, confirmRequest, moveTarget, folderInfoTarget, currentFolderID, folderByID,
+  folderSelection, requestDeleteFolders,
 } from '../state.js';
 import { L } from '../../core/i18n.js';
 import { ConfirmDialog, MoveToFolderDialog, FolderInfoDialog } from './Dialogs.jsx';
@@ -88,6 +89,18 @@ function onKeyDown(e) {
       d.skip(15);
     }
     return;
+  }
+  // Folders selected in the sidebar: Delete removes them (after confirming), Esc clears.
+  if (!editing && folderSelection.value.size) {
+    if (e.key === 'Escape') {
+      folderSelection.value = new Set();
+      return;
+    }
+    if (e.key === 'Delete' || e.key === 'Backspace') {
+      e.preventDefault();
+      requestDeleteFolders(folderSelection.value);
+      return;
+    }
   }
   if (!editing && (e.key === 'Delete' || (ctrl && e.key === 'Backspace')) && selection.value.size && section.value !== 'trash') {
     e.preventDefault();

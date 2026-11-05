@@ -72,3 +72,20 @@ test('model list drops non-text models', () => {
   assert.deepEqual(textModels(ids), ['gpt-4.1', 'o3-mini', 'claude-opus-5-5']);
   assert.deepEqual(textModels(['text-embedding-3-small']), ['text-embedding-3-small']);
 });
+
+test('Chinese providers: presets, DashScope thinking switch, error bodies', async () => {
+  const { buildRequest, nextFlags, errorMessage, applyPreset, defaultLLMConfig } = await import('../src/core/llm.js');
+  const ids = PRESETS.map((p) => p.id);
+  for (const id of ['deepseek', 'dashscope', 'zhipu', 'moonshot', 'qianfan', 'hunyuan', 'volcengine']) assert.ok(ids.includes(id), id);
+  const req = { system: 's', user: 'u', maxTokens: 10, jsonMode: true };
+  const qwen = applyPreset(defaultLLMConfig(), 'dashscope');
+  const body = (c, f = {}) => JSON.parse(buildRequest(req, c, 'k', f).init.body);
+  assert.equal(body(qwen).enable_thinking, false);
+  const named = nextFlags({}, 'parameter.enable_thinking must be set to true', req, qwen);
+  assert.equal(named.dropEnableThinking, true);
+  assert.equal(nextFlags({}, 'Bad request', req, qwen).dropEnableThinking, undefined);
+  assert.equal(body(qwen, named).enable_thinking, undefined);
+  assert.equal(body(applyPreset(defaultLLMConfig(), 'deepseek')).enable_thinking, undefined);
+  assert.equal(errorMessage('{"error_code":17,"error_msg":"Open api daily request limit reached"}'), 'Open api daily request limit reached');
+  assert.equal(errorMessage('{"error":{"code":"invalid_model","message":"model not found"}}'), 'model not found');
+});

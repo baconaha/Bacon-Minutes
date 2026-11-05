@@ -465,9 +465,20 @@ export function useContextMenu() {
     const close = (e) => {
       if (!ref.current?.contains(e.target)) setState(null);
     };
+    // Esc closes the menu only; it must not also clear a selection behind it.
+    const esc = (e) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        setState(null);
+      }
+    };
     window.addEventListener('mousedown', close, true);
+    window.addEventListener('keydown', esc, true);
     window.addEventListener('blur', () => setState(null), { once: true });
-    return () => window.removeEventListener('mousedown', close, true);
+    return () => {
+      window.removeEventListener('mousedown', close, true);
+      window.removeEventListener('keydown', esc, true);
+    };
   }, [state]);
   const open = (e, items) => {
     e.preventDefault();

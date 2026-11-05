@@ -13,10 +13,13 @@ export const PRESETS = [
   { id: 'openai', name: 'OpenAI', protocol: 'openAI', baseURL: 'https://api.openai.com/v1', model: '' },
   { id: 'anthropic', name: 'Anthropic', protocol: 'anthropic', baseURL: 'https://api.anthropic.com', model: 'claude-opus-5-5' },
   { id: 'gemini', name: 'Google Gemini', protocol: 'openAI', baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai', model: '' },
-  { id: 'deepseek', name: 'DeepSeek', protocol: 'openAI', baseURL: 'https://api.deepseek.com/v1', model: '' },
-  { id: 'dashscope', name: '阿里云百炼（通义）', protocol: 'openAI', baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: '' },
-  { id: 'moonshot', name: '月之暗面 Kimi', protocol: 'openAI', baseURL: 'https://api.moonshot.cn/v1', model: '' },
+  // Chinese providers, all through their OpenAI-compatible endpoints.
+  { id: 'deepseek', name: 'DeepSeek', protocol: 'openAI', baseURL: 'https://api.deepseek.com/v1', model: 'deepseek-chat' },
+  { id: 'dashscope', name: '阿里云百炼（通义）', protocol: 'openAI', baseURL: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-plus' },
   { id: 'zhipu', name: '智谱 GLM', protocol: 'openAI', baseURL: 'https://open.bigmodel.cn/api/paas/v4', model: '' },
+  { id: 'moonshot', name: '月之暗面 Kimi', protocol: 'openAI', baseURL: 'https://api.moonshot.cn/v1', model: '' },
+  { id: 'qianfan', name: '百度千帆（文心）', protocol: 'openAI', baseURL: 'https://qianfan.baidubce.com/v2', model: 'ernie-4.0-turbo-128k' },
+  { id: 'hunyuan', name: '腾讯混元', protocol: 'openAI', baseURL: 'https://tokenhub.tencentmaas.com/v1', model: 'hy3-preview' },
   { id: 'volcengine', name: '火山方舟（豆包）', protocol: 'openAI', baseURL: 'https://ark.cn-beijing.volces.com/api/v3', model: '' },
   { id: 'siliconflow', name: '硅基流动', protocol: 'openAI', baseURL: 'https://api.siliconflow.cn/v1', model: '' },
   { id: 'openrouter', name: 'OpenRouter', protocol: 'openAI', baseURL: 'https://openrouter.ai/api/v1', model: '' },
@@ -200,12 +203,27 @@ export function buildRequest(req, config, apiKey, flags = {}) {
     ];
     body[flags.useMaxCompletionTokens ? 'max_completion_tokens' : 'max_tokens'] = req.maxTokens;
     if (req.jsonMode && !flags.dropResponseFormat) body.response_format = { type: 'json_object' };
+    if (sendsEnableThinking(config, flags)) body.enable_thinking = false;
   }
   if (config.temperatureEnabled && !flags.dropTemperature) body.temperature = Number(config.temperature);
   return { url, init: { method: 'POST', headers: headers(config, apiKey, fallbacks), body: JSON.stringify(body) } };
 }
 
+/**
+ * Alibaba DashScope: open-source Qwen3 models think by default and then refuse non-streaming
+ * calls, so requests ask for no thinking (dropped again if a thinking-only model rejects it).
+ */
+export function sendsEnableThinking(config, flags) {
+  if (config.protocol !== 'openAI' || flags.dropEnableThinking) return false;
+  try {
+    return new URL(normalizedBase(config.baseURL)).hostname.toLowerCase().includes('dashscope');
+  } catch {
+    return false;
+  }
+}
+
 const STEPS = [
+  { id: 'dropEnableThinking', keywords: ['enable_thinking', 'thinking'] },
   { id: 'dropResponseFormat', keywords: ['response_format', 'json_object', 'json mode'] },
   { id: 'useMaxCompletionTokens', keywords: ['max_tokens', 'max_completion_tokens'] },
   { id: 'dropTemperature', keywords: ['temperature'] },
@@ -217,6 +235,8 @@ export function nextFlags(flags, message, req, config) {
   const openAIStyle = config.protocol !== 'anthropic';
   const applicable = (id) => {
     switch (id) {
+      case 'dropEnableThinking':
+        return sendsEnableThinking(config, flags);
       case 'dropResponseFormat':
         return openAIStyle && req.jsonMode && !flags.dropResponseFormat;
       case 'useMaxCompletionTokens':
@@ -232,14 +252,17 @@ export function nextFlags(flags, message, req, config) {
   const candidates = STEPS.filter((s) => applicable(s.id));
   if (!candidates.length) return null;
   const lower = (message || '').toLowerCase();
-  const step = candidates.find((s) => s.keywords.some((k) => lower.includes(k))) || candidates[0];
+  // enable_thinking is only dropped when the error names it; otherwise try the others first.
+  const step =
+    candidates.find((s) => s.keywords.some((k) => lower.includes(k))) || candidates.find((s) => s.id !== 'dropEnableThinking') || candidates[0];
   return { ...flags, [step.id]: true };
 }
 
 function errorText(x) {
   if (typeof x === 'string') return x;
   if (x && typeof x === 'object') {
-    if (typeof x.message === 'string') return x.message;
+    // OpenAI style, then Baidu ("error_msg") and other Chinese providers' field names.
+    for (const k of ['message', 'error_msg', 'errmsg', 'msg']) if (typeof x[k] === 'string' && x[k]) return x[k];
     if (x.error) return errorText(x.error);
   }
   return null;
@@ -253,7 +276,7 @@ export function errorMessage(text) {
       const m = errorText(obj[0]?.error);
       if (m) return m;
     } else if (obj && typeof obj === 'object') {
-      const m = errorText(obj.error) || (typeof obj.message === 'string' && obj.message) || (typeof obj.detail === 'string' && obj.detail);
+      const m = errorText(obj.error) || errorText({ ...obj, error: undefined }) || (typeof obj.detail === 'string' && obj.detail);
       if (m) return m;
     }
   } catch {

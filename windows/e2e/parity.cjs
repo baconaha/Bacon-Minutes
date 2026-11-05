@@ -52,12 +52,40 @@ const check = (name, ok, detail = '') => results.push(`${ok ? 'PASS' : 'FAIL'} $
   await page.waitForTimeout(300);
   const names = await page.$$eval('.folder-row .folder-name', (els) => els.map((e) => e.textContent));
   check('click elsewhere saves a new folder name', names.includes('化学课') && !(await page.$('.folder-input')), JSON.stringify(names));
-  await page.mouse.move(700, 600);
-  await page.click('.folder-row:has-text("化学课")', { button: 'right' });
-  await page.click('.menu-item:has-text("删除文件夹")');
+  await page.click('.sidebar-plus');
+  await page.waitForSelector('.folder-input');
+  await page.keyboard.type('生物课');
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(200);
+
+  // drag from empty space below the folders up across 生物课 and 化学课 (not 物理课)
+  const area = await page.locator('.folders-scroll').boundingBox();
+  const chem = await page.locator('.folder-row:has-text("化学课")').boundingBox();
+  const lastRow = await page.locator('.folder-row').last().boundingBox();
+  await page.mouse.move(area.x + area.width - 16, lastRow.y + lastRow.height + 40);
+  await page.mouse.down();
+  await page.mouse.move(area.x + area.width - 40, lastRow.y + 10, { steps: 4 });
+  await page.mouse.move(area.x + 30, chem.y + 8, { steps: 6 });
+  await shot('02b-folder-marquee');
+  const live = await page.$$eval('.folder-row.batch .folder-name', (els) => els.map((e) => e.textContent));
+  check('marquee selects the folders it crosses, live', live.length === 2 && live.includes('化学课') && live.includes('生物课'), JSON.stringify(live));
+  check('marquee rectangle is drawn', !!(await page.$('.marquee')));
+  await page.mouse.up();
+  await page.waitForTimeout(150);
+  check('selection stays after release, rectangle goes', (await page.$$('.folder-row.batch')).length === 2 && !(await page.$('.marquee')));
+  await page.click('.folder-row:has-text("生物课")', { button: 'right' });
+  check('right-click on a selected folder offers the batch delete', !!(await page.$('.menu-item:has-text("删除 2 个文件夹")')));
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(200);
+  await page.keyboard.press('Delete');
   await page.waitForSelector('.flip-card');
-  await page.click('.btn-danger');
+  check('Delete asks to delete both folders', (await page.textContent('.confirm-title')).includes('删除 2 个文件夹'));
   await page.waitForTimeout(400);
+  await shot('02c-delete-folders-confirm');
+  await page.click('.btn-danger');
+  await page.waitForTimeout(500);
+  const left = await page.$$eval('.folder-row .folder-name', (els) => els.map((e) => e.textContent));
+  check('both selected folders deleted, the other kept', JSON.stringify(left) === JSON.stringify(['物理课']), JSON.stringify(left));
 
   // drag a row from 全部 onto the folder
   await page.click('.nav-item:has-text("全部")');
@@ -79,6 +107,18 @@ const check = (name, ok, detail = '') => results.push(`${ok ? 'PASS' : 'FAIL'} $
   await page.mouse.move(600, 700);
   await page.waitForTimeout(500);
   check('hover menu closes when the pointer leaves', !(await page.$('.menu')));
+
+  // sort by name
+  await page.hover('.sort-trigger');
+  await page.waitForSelector('.menu.from-top', { timeout: 2000 });
+  await page.click('.menu-item:has-text("名称")');
+  await page.waitForTimeout(300);
+  const titles = await page.$$eval('.row .row-title', (els) => els.map((e) => e.textContent.replace(/^纪要/, '')));
+  const sorted = [...titles].sort(new Intl.Collator('zh-CN', { numeric: true, sensitivity: 'base' }).compare);
+  check('sort by name orders rows by title', JSON.stringify(titles) === JSON.stringify(sorted) && (await page.textContent('.sort-trigger')).includes('名称'), JSON.stringify(titles));
+  await ev(`window.__lm.state.updateGeneral({ listSort: 'created' })`);
+  await page.mouse.move(600, 700);
+  await page.waitForTimeout(400);
 
   // row ··· opens on click only
   await page.hover('.row:has-text("访谈录音") .col-ops .btn-icon');

@@ -658,6 +658,7 @@ select.field {
 }
 
 .folders-scroll {
+  position: relative;
   flex: 1;
   min-height: 40px;
   overflow-y: auto;
@@ -687,6 +688,19 @@ select.field {
 .folder-row.selected {
   background: var(--cur-cue);
   color: var(--brand);
+}
+
+/* Part of a drag / Ctrl-click selection. */
+.folder-row.batch {
+  background: var(--divider);
+}
+
+.marquee {
+  position: absolute;
+  border: 1px solid color-mix(in srgb, var(--brand) 50%, transparent);
+  background: color-mix(in srgb, var(--brand) 8%, transparent);
+  border-radius: 3px;
+  pointer-events: none;
 }
 
 .folder-row.drop {

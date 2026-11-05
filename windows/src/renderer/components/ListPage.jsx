@@ -4,6 +4,7 @@ import {
   openMinute, requestMoveToTrash, restoreMinutes, deleteForever, revealMedia, reimportSRT, renameTarget, updateGeneral,
   runListSearch, listSearchFocus, createFolder, renameFolder, requestDeleteFolder, moveMinutes, importIntoFolder,
   renamingFolderID, folderInfoTarget, moveTarget, currentFolderID, sectionTitle, folderByID, libraryStats, byteText,
+  folderSelection, requestDeleteFolders,
 } from '../state.js';
 import { importFolder } from '../importer.js';
 import { duration, roughDuration, dateOnly, createdDate } from '../../core/time.js';
@@ -29,6 +30,16 @@ function folderItems(f) {
   ];
 }
 
+/** Menu for a multi-folder selection. */
+function batchItems() {
+  const n = folderSelection.value.size;
+  return [
+    { label: L('取消选择'), icon: 'close', onClick: () => (folderSelection.value = new Set()) },
+    'sep',
+    { label: L('删除 {0} 个文件夹', n), icon: 'trash', danger: true, onClick: () => requestDeleteFolders(folderSelection.value) },
+  ];
+}
+
 function FolderRow({ folder, openContext }) {
   const [hovering, setHovering] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -36,6 +47,8 @@ function FolderRow({ folder, openContext }) {
   const input = useRef(null);
   const selected = section.value === `folder:${folder.id}`;
   const editing = renamingFolderID.value === folder.id;
+  const inBatch = folderSelection.value.has(folder.id);
+  const items = inBatch && folderSelection.value.size > 1 ? batchItems() : folderItems(folder);
   useEffect(() => {
     if (editing) {
       input.current?.focus();
@@ -45,14 +58,24 @@ function FolderRow({ folder, openContext }) {
   const accepts = (e) => Array.from(e.dataTransfer?.types || []).includes(DRAG_TYPE);
   return (
     <div
-      class={`folder-row ${selected ? 'selected' : ''} ${dropping ? 'drop' : ''}`}
+      class={`folder-row ${selected ? 'selected' : ''} ${inBatch ? 'batch' : ''} ${dropping ? 'drop' : ''}`}
+      data-id={folder.id}
       onMouseEnter={() => setHovering(true)}
       onMouseLeave={() => setHovering(false)}
-      onClick={() => {
+      onClick={(e) => {
+        if (e.ctrlKey || e.metaKey) {
+          // Ctrl-click adds or removes one folder from the selection.
+          const next = new Set(folderSelection.value);
+          if (inBatch) next.delete(folder.id);
+          else next.add(folder.id);
+          folderSelection.value = next;
+          return;
+        }
+        folderSelection.value = new Set();
         section.value = `folder:${folder.id}`;
         selection.value = new Set();
       }}
-      onContextMenu={(e) => openContext(e, folderItems(folder))}
+      onContextMenu={(e) => openContext(e, items)}
       onDragOver={(e) => {
         if (!accepts(e)) return;
         e.preventDefault();
@@ -92,11 +115,70 @@ function FolderRow({ folder, openContext }) {
       {/* Kept while its menu is open: the pointer leaves the row on its way to the menu. */}
       {(hovering || menuOpen) && !editing ? (
         <span onClick={(e) => e.stopPropagation()}>
-          <MoreButton size={22} hover={false} title={L('文件夹操作')} items={folderItems(folder)} onOpenChange={setMenuOpen} />
+          <MoreButton size={22} hover={false} title={L('文件夹操作')} items={items} onOpenChange={setMenuOpen} />
         </span>
       ) : (
         <span class="folder-count num">{libraryStats(folder.id).count}</span>
       )}
+    </div>
+  );
+}
+
+/**
+ * Folder rows with drag-to-select: a drag that starts on empty space draws a selection
+ * rectangle, and every folder it touches turns gray and is selected for batch actions.
+ */
+function FolderList({ openContext }) {
+  const box = useRef(null);
+  const [rect, setRect] = useState(null);
+
+  const onMouseDown = (e) => {
+    if (e.button !== 0 || e.target.closest('.folder-row')) return;
+    e.preventDefault();
+    document.activeElement?.blur?.();
+    const el = box.current;
+    const point = (ev) => {
+      const o = el.getBoundingClientRect();
+      return { x: ev.clientX - o.left, y: ev.clientY - o.top + el.scrollTop };
+    };
+    const start = point(e);
+    const base = e.ctrlKey || e.metaKey ? new Set(folderSelection.value) : new Set();
+    let moved = false;
+    const move = (ev) => {
+      const p = point(ev);
+      if (!moved && Math.hypot(p.x - start.x, p.y - start.y) < 3) return;
+      if (!moved) selection.value = new Set();
+      moved = true;
+      const r = { left: Math.min(start.x, p.x), top: Math.min(start.y, p.y), right: Math.max(start.x, p.x), bottom: Math.max(start.y, p.y) };
+      setRect(r);
+      const o = el.getBoundingClientRect();
+      const next = new Set(base);
+      for (const row of el.querySelectorAll('.folder-row')) {
+        const b = row.getBoundingClientRect();
+        const top = b.top - o.top + el.scrollTop;
+        const left = b.left - o.left;
+        if (left < r.right && left + b.width > r.left && top < r.bottom && top + b.height > r.top) next.add(row.dataset.id);
+      }
+      const cur = folderSelection.value;
+      if (next.size !== cur.size || [...next].some((id) => !cur.has(id))) folderSelection.value = next;
+    };
+    const up = () => {
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', up);
+      setRect(null);
+      // A click on empty space clears the selection.
+      if (!moved) folderSelection.value = new Set();
+    };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+  };
+
+  return (
+    <div class="folders-scroll" ref={box} onMouseDown={onMouseDown}>
+      {folders.value.map((f) => (
+        <FolderRow key={f.id} folder={f} openContext={openContext} />
+      ))}
+      {rect && <div class="marquee" style={{ left: rect.left, top: rect.top, width: rect.right - rect.left, height: rect.bottom - rect.top }} />}
     </div>
   );
 }
@@ -134,6 +216,7 @@ function Sidebar({ openContext }) {
           onClick={() => {
             section.value = s.id;
             selection.value = new Set();
+            folderSelection.value = new Set();
           }}
         >
           <Icon name={s.icon} />
@@ -146,11 +229,7 @@ function Sidebar({ openContext }) {
           <Icon name="plus" size={13} />
         </button>
       </div>
-      <div class="folders-scroll">
-        {folders.value.map((f) => (
-          <FolderRow key={f.id} folder={f} openContext={openContext} />
-        ))}
-      </div>
+      <FolderList openContext={openContext} />
       <LibraryStats />
       <div class="sidebar-sep" />
       <button class="nav-item" onClick={() => (settingsOpen.value = 'api')}>
@@ -279,17 +358,19 @@ function Row({ m, trash, openContext }) {
 
 function SortMenu() {
   if (section.value === 'recent') return L('最近打开');
-  const opened = general.value.listSort === 'opened';
+  const sort = general.value.listSort || 'created';
+  const header = { created: L('创建时间'), opened: L('最近打开'), name: L('名称') }[sort] || L('创建时间');
   return (
     <Menu
       minWidth={140}
       items={[
-        { label: L('最近创建'), selected: !opened, onClick: () => updateGeneral({ listSort: 'created' }) },
-        { label: L('最近打开'), selected: opened, onClick: () => updateGeneral({ listSort: 'opened' }) },
+        { label: L('最近创建'), selected: sort === 'created', onClick: () => updateGeneral({ listSort: 'created' }) },
+        { label: L('最近打开'), selected: sort === 'opened', onClick: () => updateGeneral({ listSort: 'opened' }) },
+        { label: L('名称'), selected: sort === 'name', onClick: () => updateGeneral({ listSort: 'name' }) },
       ]}
       trigger={({ toggle }) => (
         <button class="sort-trigger" onClick={toggle}>
-          {opened ? L('最近打开') : L('创建时间')}
+          {header}
           <Icon name="chevronDown" size={11} />
         </button>
       )}

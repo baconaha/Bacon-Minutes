@@ -1,5 +1,5 @@
 // App-wide state (Preact signals) and library actions.
-import { signal, computed, batch } from '@preact/signals';
+import { signal, computed, batch, effect } from '@preact/signals';
 import { defaultLLMConfig, applyPreset } from '../core/llm.js';
 import { DEFAULT_SUFFIXES } from '../core/pairing.js';
 import { fold } from '../core/text.js';
@@ -54,6 +54,8 @@ export const moveTarget = signal(null);
 export const folderInfoTarget = signal(null);
 /** Folder whose name is being edited inline in the sidebar. */
 export const renamingFolderID = signal(null);
+/** Folders picked with a drag across the sidebar (or Ctrl-click), for batch actions. */
+export const folderSelection = signal(new Set());
 /** User-uploaded app icon as a data URL; null shows the default artwork. */
 export const customIcon = signal(null);
 
@@ -76,6 +78,11 @@ export const apiKey = signal('');
 export const llmReady = computed(() => {
   const c = llm.value;
   return !!c.baseURL.trim() && !!c.model.trim() && !c.baseURL.includes('{');
+});
+
+// Checking recordings ends a folder selection, so Delete acts on what was picked last.
+effect(() => {
+  if (selection.value.size && folderSelection.peek().size) folderSelection.value = new Set();
 });
 
 export const isDialogOpen = computed(() => !!(confirmRequest.value || moveTarget.value || folderInfoTarget.value));
@@ -209,7 +216,11 @@ export const visibleMinutes = computed(() => {
   const t = (d) => (d ? Date.parse(d) : 0);
   if (sec === 'trash') items.sort((a, b) => t(b.deletedAt) - t(a.deletedAt));
   else if (sec === 'recent' || general.value.listSort === 'opened') items.sort((a, b) => t(b.lastOpenedAt) - t(a.lastOpenedAt) || t(b.createdAt) - t(a.createdAt));
-  else items.sort((a, b) => t(b.createdAt) - t(a.createdAt));
+  else if (general.value.listSort === 'name') {
+    // Explorer order: "第2讲" before "第10讲", case ignored.
+    const collator = new Intl.Collator(localeTag(uiLanguage.value), { numeric: true, sensitivity: 'base' });
+    items.sort((a, b) => collator.compare(a.title, b.title));
+  } else items.sort((a, b) => t(b.createdAt) - t(a.createdAt));
   return items;
 });
 
@@ -242,6 +253,7 @@ export async function createFolder() {
     folders.value = [...folders.value, f];
     section.value = `folder:${f.id}`;
     selection.value = new Set();
+    folderSelection.value = new Set();
     renamingFolderID.value = f.id;
   });
 }
@@ -269,6 +281,32 @@ export function requestDeleteFolder(id) {
         folders.value = folders.value.filter((x) => x.id !== id);
       });
       showToast(L('已删除文件夹'));
+    },
+  };
+}
+
+/** Several folders at once (sidebar drag-select); one folder uses the single-folder wording. */
+export function requestDeleteFolders(ids) {
+  const targets = folders.value.filter((f) => ids.has(f.id));
+  if (!targets.length) return;
+  if (targets.length === 1) return requestDeleteFolder(targets[0].id);
+  const count = targets.reduce((n, f) => n + libraryStats(f.id).count, 0);
+  confirmRequest.value = {
+    title: L('删除 {0} 个文件夹？', targets.length),
+    message: count > 0 ? L('这些文件夹里的 {0} 个妙记不会被删除，仍会保留在「全部」中。', count) : L('这些文件夹都是空的。'),
+    confirmTitle: L('删除文件夹'),
+    onConfirm: async () => {
+      if (targets.some((f) => section.value === `folder:${f.id}`)) section.value = 'all';
+      for (const f of targets) {
+        const changed = await call('lib:deleteFolder', f.id);
+        changed.forEach(upsertMinute);
+      }
+      const gone = new Set(targets.map((f) => f.id));
+      batch(() => {
+        folders.value = folders.value.filter((x) => !gone.has(x.id));
+        folderSelection.value = new Set();
+      });
+      showToast(L('已删除 {0} 个文件夹', targets.length));
     },
   };
 }
