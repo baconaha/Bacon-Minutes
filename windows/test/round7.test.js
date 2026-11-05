@@ -139,13 +139,15 @@ test('unsupported formats, summary files and volume keys', () => {
 test('summary prompt is the same text as the Mac app', async () => {
   const { readFileSync } = await import('node:fs');
   const { SYSTEM_PROMPT, PROMPT_VERSION } = await import('../src/core/prompts.js');
-  const swift = readFileSync(new URL('../../Sources/MinutesCore/LLM/Prompts.swift', import.meta.url), 'utf8');
+  // Windows checkouts may use CRLF line endings.
+  const lf = (t) => t.replace(/\r\n/g, '\n');
+  const swift = lf(readFileSync(new URL('../../Sources/MinutesCore/LLM/Prompts.swift', import.meta.url), 'utf8'));
   const body = swift.slice(swift.indexOf('static let system = """\n') + 'static let system = """\n'.length, swift.indexOf('\n    """\n'));
   const macRaw = body.split('\n').map((l) => l.replace(/^ {4}/, '')).join('\n');
   // Both sources use the same escapes (\\"…\\"), so compare them as written.
-  const jsSrc = readFileSync(new URL('../src/core/prompts.js', import.meta.url), 'utf8');
+  const jsSrc = lf(readFileSync(new URL('../src/core/prompts.js', import.meta.url), 'utf8'));
   const jsRaw = jsSrc.slice(jsSrc.indexOf('SYSTEM_PROMPT = `') + 'SYSTEM_PROMPT = `'.length, jsSrc.indexOf('`;', jsSrc.indexOf('SYSTEM_PROMPT = `')));
   assert.equal(jsRaw, macRaw);
-  assert.ok(SYSTEM_PROMPT.includes('chapters.title、key_points.title'));
+  assert.ok(lf(SYSTEM_PROMPT).includes('chapters.title、key_points.title'));
   assert.equal(PROMPT_VERSION, Number(/static let version = (\d+)/.exec(swift)[1]));
 });
