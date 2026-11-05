@@ -55,13 +55,24 @@ struct RootView: View {
                 }
             }
 
+            if let review = app.importReview {
+                ImportReviewDialog(app: app, review: review)
+                    .id(review.id)
+                    .zIndex(10)
+            }
             if let request = app.confirmRequest {
-                ConfirmDialogView(request: request) { confirmed in
-                    app.confirmRequest = nil
-                    if confirmed { request.onConfirm() }
+                ConfirmDialogView(request: request) { confirmed, checked in
+                    // A follow-up dialog may set a new request from the handler.
+                    if app.confirmRequest?.id == request.id { app.confirmRequest = nil }
+                    guard confirmed else { return }
+                    if checked, let next = request.onConfirmChecked {
+                        next()
+                    } else {
+                        request.onConfirm()
+                    }
                 }
                 .id(request.id)
-                .zIndex(10)
+                .zIndex(11)
             }
             if let ids = app.moveTarget {
                 MoveToFolderDialog(app: app, ids: ids)

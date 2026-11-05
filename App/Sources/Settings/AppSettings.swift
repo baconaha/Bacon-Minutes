@@ -79,10 +79,12 @@ final class UserDefaultsCompatStore: CompatStore {
 final class AppSettings {
     private static let generalKey = "settings.general"
     private static let llmKey = "settings.llm"
+    private static let favoritesKey = "settings.favoriteModels"
 
     private var storedGeneral: GeneralSettings
     private var storedLLM: LLMConfig
     private var storedAPIKey: String
+    private var storedFavorites: [FavoriteModel]
 
     let compatStore = UserDefaultsCompatStore()
 
@@ -94,6 +96,8 @@ final class AppSettings {
         let config = llm ?? LLMConfig()
         storedLLM = config
         storedAPIKey = SecretStore.read(account: config.presetID) ?? ""
+        storedFavorites = defaults.data(forKey: Self.favoritesKey)
+            .flatMap { try? JSONDecoder().decode([FavoriteModel].self, from: $0) } ?? []
     }
 
     var general: GeneralSettings {
@@ -132,6 +136,49 @@ final class AppSettings {
     }
 
     var currentPreset: ProviderPreset? { ProviderPreset.preset(id: storedLLM.presetID) }
+
+    // MARK: Favorite models
+
+    /// Starred models, in the order they were starred.
+    var favorites: [FavoriteModel] {
+        get { storedFavorites }
+        set {
+            guard newValue != storedFavorites else { return }
+            storedFavorites = newValue
+            if let data = try? JSONEncoder().encode(newValue) {
+                UserDefaults.standard.set(data, forKey: Self.favoritesKey)
+            }
+        }
+    }
+
+    func isFavorite(_ key: String) -> Bool { storedFavorites.contains { $0.id == key } }
+
+    /// Stars or unstars `model` on the endpoint currently set up.
+    func toggleFavorite(model: String) {
+        let name = model.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return }
+        let fav = FavoriteModel(config: storedLLM, model: name)
+        if let i = storedFavorites.firstIndex(where: { $0.id == fav.id }) {
+            favorites.remove(at: i)
+        } else {
+            favorites.append(fav)
+        }
+    }
+
+    func removeFavorite(_ id: String) {
+        favorites.removeAll { $0.id == id }
+    }
+
+    /// Makes a favorite the default model (switching provider and key if needed).
+    func useAsDefault(_ fav: FavoriteModel) {
+        llm = fav.applied(to: storedLLM)
+    }
+
+    /// The saved key of any provider preset, not only the current one.
+    func apiKey(forPreset id: String) -> String {
+        if id == storedLLM.presetID { return storedAPIKey }
+        return SecretStore.read(account: id) ?? ""
+    }
 
     /// Ready to call the API (local servers may run without a key).
     var isLLMReady: Bool { storedLLM.isConfigured }

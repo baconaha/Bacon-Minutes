@@ -19,12 +19,31 @@ struct DropdownItem: Identifiable {
     var isSelected = false
     var isDestructive = false
     var isDisabled = false
+    /// Grayed second line-part after the title (e.g. a provider name).
+    var detail: String?
+    /// Star toggle at the trailing edge (favorite models); it does not close the menu.
+    var starred: Bool?
+    var onStar: (() -> Void)?
     var action: () -> Void = {}
 
     static func button(_ title: String, icon: String? = nil, selected: Bool = false, destructive: Bool = false,
                        disabled: Bool = false, action: @escaping () -> Void) -> DropdownItem {
         DropdownItem(kind: .action, title: title, icon: icon, isSelected: selected, isDestructive: destructive,
                      isDisabled: disabled, action: action)
+    }
+
+    /// Title plus a grayed detail (e.g. model name and provider).
+    static func detailed(_ title: String, detail: String?, icon: String? = nil, selected: Bool = false,
+                         disabled: Bool = false, action: @escaping () -> Void) -> DropdownItem {
+        DropdownItem(kind: .action, title: title, icon: icon, isSelected: selected, isDisabled: disabled,
+                     detail: detail, action: action)
+    }
+
+    /// Row with a star at the trailing edge; clicking the star toggles it in place.
+    static func starrable(_ title: String, detail: String? = nil, selected: Bool = false, starred: Bool,
+                          onStar: @escaping () -> Void, action: @escaping () -> Void) -> DropdownItem {
+        DropdownItem(kind: .action, title: title, isSelected: selected, detail: detail, starred: starred,
+                     onStar: onStar, action: action)
     }
 
     /// Stays open when clicked; the row flips its own switch.
@@ -140,6 +159,7 @@ private struct DropdownRow: View {
     let action: () -> Void
     @State private var hovering = false
     @State private var isOn = false
+    @State private var starOn = false
 
     private var dark: Bool { style == .dark }
 
@@ -172,6 +192,12 @@ private struct DropdownRow: View {
                     .font(.system(size: 14))
                     .foregroundStyle(textColor)
                     .lineLimit(1)
+                if let detail = item.detail {
+                    Text(detail)
+                        .font(.system(size: 12))
+                        .foregroundStyle(dark ? Color.white.opacity(0.45) : Color.textTertiary)
+                        .lineLimit(1)
+                }
                 Spacer(minLength: 16)
                 if case .toggle = item.kind {
                     MiniSwitch(on: isOn)
@@ -179,6 +205,10 @@ private struct DropdownRow: View {
                     Image(systemName: "checkmark")
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(textColor)
+                }
+                if item.starred != nil {
+                    // Room for the star button laid over this edge.
+                    Color.clear.frame(width: 22, height: 1)
                 }
             }
             .padding(.horizontal, 12)
@@ -193,10 +223,45 @@ private struct DropdownRow: View {
         }
         .buttonStyle(.plain)
         .disabled(item.isDisabled)
+        .overlay(alignment: .trailing) {
+            if item.starred != nil {
+                StarButton(on: starOn) {
+                    starOn.toggle()
+                    item.onStar?()
+                }
+                .padding(.trailing, 8)
+            }
+        }
         .onHover { hovering = $0 }
         .onAppear {
             if case .toggle(let on) = item.kind { isOn = on }
+            starOn = item.starred ?? false
         }
+    }
+}
+
+/// Star outline that turns yellow when on (favorite models).
+struct StarButton: View {
+    let on: Bool
+    var size: CGFloat = 13
+    let action: () -> Void
+    @State private var hovering = false
+
+    static let yellow = Color(nsColor: NSColor(hex: 0xF5B400))
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: on ? "star.fill" : "star")
+                .font(.system(size: size, weight: .medium))
+                .foregroundStyle(on ? Self.yellow : (hovering ? Self.yellow.opacity(0.8) : Color.textTertiary))
+                .scaleEffect(on ? 1.08 : 1)
+                .animation(.spring(response: 0.25, dampingFraction: 0.55), value: on)
+                .frame(width: 22, height: 22)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .help(on ? L("取消收藏") : L("收藏模型"))
     }
 }
 

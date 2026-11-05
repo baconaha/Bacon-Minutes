@@ -20,10 +20,11 @@ struct SummaryPanel: View {
     private var content: some View {
         if !model.isLoaded {
             Color.clear
-        } else if case .generating(let text) = model.summaryState {
-            GeneratingView(text: text) { model.cancelGeneration() }
         } else if let summary = model.summary {
+            // A new version generating in the background shows as a banner above the current one.
             SummaryContent(model: model, summary: summary)
+        } else if case .generating(let text) = model.summaryState {
+            GeneratingView(text: text, modelName: model.generatingModelName) { model.cancelGeneration() }
         } else if case .failed(let message) = model.summaryState {
             ScrollView {
                 VStack(spacing: 16) {
@@ -40,7 +41,7 @@ struct SummaryPanel: View {
                 Button(L("导入 SRT 字幕")) { model.chooseAndImportSRT() }
                     .buttonStyle(PrimaryButtonStyle())
             }
-        } else if !model.settings.isLLMReady {
+        } else if !model.settings.isLLMReady && model.settings.favorites.isEmpty {
             ScrollView {
                 VStack(spacing: 18) {
                     SummaryPlaceholder(icon: "sparkles", title: L("配置 API 后即可生成智能纪要"),
@@ -56,8 +57,128 @@ struct SummaryPanel: View {
         } else {
             SummaryPlaceholder(icon: "sparkles", title: L("让 AI 帮你整理这段内容"),
                                message: L("将生成总述、要点、待办、章节与关键词")) {
-                Button(L("生成智能纪要")) { model.generateSummary() }
-                    .buttonStyle(PrimaryButtonStyle())
+                VStack(spacing: 14) {
+                    Button(L("生成智能纪要")) { model.generateSummary() }
+                        .buttonStyle(PrimaryButtonStyle())
+                    HStack(spacing: 6) {
+                        Text(L("使用模型"))
+                            .font(.system(size: 12))
+                            .foregroundStyle(Color.textTertiary)
+                        SummaryModelPicker(model: model)
+                    }
+                }
+                .padding(.top, 4)
+            }
+        }
+    }
+}
+
+/// Picks the model for the next generation: the default from Settings or a starred one.
+struct SummaryModelPicker: View {
+    @Bindable var model: DetailModel
+
+    var body: some View {
+        DropdownButton(alignment: .trailing, minWidth: 260, openOnHover: false, items: { items }) { open in
+            HStack(spacing: 5) {
+                Image(systemName: model.chosenFavorite == nil ? "cpu" : "star.fill")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(model.chosenFavorite == nil ? Color.textTertiary : StarButton.yellow)
+                Text(model.chosenModelName.isEmpty ? L("未设置模型") : model.chosenModelName)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color.textSecondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .frame(maxWidth: 170, alignment: .leading)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundStyle(Color.textTertiary)
+                    .rotationEffect(.degrees(open ? 180 : 0))
+            }
+            .padding(.horizontal, 8)
+            .frame(height: 24)
+            .background(RoundedRectangle(cornerRadius: 5).fill(open ? Color.searchFill : Color.searchFill.opacity(0.6)))
+            .contentShape(Rectangle())
+            .fixedSize()
+        }
+        .buttonStyle(.plain)
+        .help(L("生成纪要使用的模型"))
+    }
+
+    private var items: [DropdownItem] {
+        let settings = model.settings
+        let defaultName = settings.llm.model.isEmpty ? L("未设置模型") : settings.llm.model
+        var out: [DropdownItem] = [
+            .detailed(defaultName, detail: L("默认 · {0}", settings.currentPreset?.name ?? L("自定义")), icon: "gearshape",
+                      selected: model.chosenFavorite == nil, disabled: !settings.llm.isConfigured) {
+                model.chosenModelID = nil
+            },
+            .divider,
+        ]
+        if settings.favorites.isEmpty {
+            out.append(.button(L("在设置的模型列表中点 ☆ 收藏后，可在这里切换"), icon: "star", disabled: true) {})
+        } else {
+            for fav in settings.favorites {
+                out.append(.detailed(fav.model, detail: fav.providerName, icon: "star.fill",
+                                     selected: model.chosenModelID == fav.id) {
+                    model.chosenModelID = fav.id
+                })
+            }
+        }
+        return out
+    }
+}
+
+/// Switches between the summary versions of this minute.
+private struct SummaryVersionPicker: View {
+    @Bindable var model: DetailModel
+    let summary: Summary
+
+    var body: some View {
+        let list = model.summaries
+        let index = (list.firstIndex { $0.id == summary.id } ?? 0) + 1
+        if list.count <= 1 {
+            label(index: index, count: list.count, open: false, menu: false)
+        } else {
+            DropdownButton(minWidth: 300, openOnHover: false, items: { items }) { open in
+                label(index: index, count: list.count, open: open, menu: true)
+            }
+            .buttonStyle(.plain)
+            .help(L("切换纪要版本"))
+        }
+    }
+
+    private func label(index: Int, count: Int, open: Bool, menu: Bool) -> some View {
+        HStack(spacing: 5) {
+            if menu {
+                Text(L("版本 {0}/{1}", index, count))
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Color.brand)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 1)
+                    .background(RoundedRectangle(cornerRadius: 3).fill(Color.selectionFill))
+            }
+            Text("\(summary.model) · \(TimeFormat.createdDate(summary.generatedAt))")
+                .font(.system(size: 11))
+                .foregroundStyle(Color.textTertiary)
+                .lineLimit(1)
+            if menu {
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundStyle(Color.textTertiary)
+                    .rotationEffect(.degrees(open ? 180 : 0))
+            }
+        }
+        .padding(.horizontal, menu ? 6 : 0)
+        .frame(height: 24)
+        .background(RoundedRectangle(cornerRadius: 5).fill(open ? Color.searchFill : Color.clear))
+        .contentShape(Rectangle())
+    }
+
+    private var items: [DropdownItem] {
+        model.summaries.reversed().map { s in
+            DropdownItem.detailed(s.model, detail: TimeFormat.createdDate(s.generatedAt), icon: "sparkles",
+                                  selected: s.id == summary.id) {
+                model.selectSummary(s.id)
             }
         }
     }
@@ -95,6 +216,7 @@ private struct SummaryPlaceholder<Actions: View>: View {
 
 private struct GeneratingView: View {
     let text: String
+    var modelName: String?
     let cancel: () -> Void
 
     var body: some View {
@@ -102,6 +224,9 @@ private struct GeneratingView: View {
             HStack(spacing: 8) {
                 ProgressView().controlSize(.small)
                 Text(text).font(.system(size: 13)).foregroundStyle(Color.textSecondary)
+                if let modelName, !modelName.isEmpty {
+                    Text("· \(modelName)").font(.system(size: 12)).foregroundStyle(Color.textTertiary).lineLimit(1)
+                }
                 Spacer()
                 Button(L("取消"), action: cancel).buttonStyle(TextLinkButtonStyle())
             }
@@ -163,21 +288,30 @@ private struct SummaryContent: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
-                HStack {
-                    Text("\(summary.model) · \(TimeFormat.createdDate(summary.generatedAt))")
-                        .font(.system(size: 11))
-                        .foregroundStyle(Color.textTertiary)
-                        .lineLimit(1)
-                    Spacer()
+                HStack(spacing: 8) {
+                    SummaryVersionPicker(model: model, summary: summary)
+                    Spacer(minLength: 8)
+                    if !model.isGenerating {
+                        SummaryModelPicker(model: model)
+                        Button(L("重新生成")) { model.generateSummary() }
+                            .buttonStyle(TextLinkButtonStyle(size: 12))
+                            .help(L("用所选模型生成一份新的纪要，现有版本会保留"))
+                    }
                     MoreMenuButton {
                         [
-                            .button(L("重新生成"), icon: "arrow.clockwise") { model.generateSummary() },
                             .button(L("复制为 Markdown"), icon: "doc.on.doc") { model.copySummaryMarkdown() },
+                            .button(L("导出纪要文件…"), icon: "square.and.arrow.up") { model.exportSummaryFile() },
+                            .button(L("导入纪要文件…"), icon: "square.and.arrow.down") { model.chooseAndImportSummaryFile() },
+                            .divider,
+                            .button(L("删除这份纪要"), icon: "trash", destructive: true) { model.requestDeleteSummary(summary.id) },
                         ]
                     }
                 }
                 .padding(.bottom, -12)
 
+                if case .generating(let text) = model.summaryState {
+                    GeneratingBanner(text: text, modelName: model.generatingModelName) { model.cancelGeneration() }
+                }
                 if case .failed(let message) = model.summaryState {
                     ErrorCard(message: message) { model.generateSummary() }
                 }
@@ -189,6 +323,29 @@ private struct SummaryContent: View {
             }
             .padding(20)
         }
+    }
+}
+
+/// A new version generating while an older one is shown.
+private struct GeneratingBanner: View {
+    let text: String
+    var modelName: String?
+    let cancel: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            ProgressView().controlSize(.small)
+            Text(text).foregroundStyle(Color.textSecondary)
+            if let modelName, !modelName.isEmpty {
+                Text("· \(modelName)").foregroundStyle(Color.textTertiary).lineLimit(1)
+            }
+            Spacer()
+            Button(L("取消"), action: cancel).buttonStyle(TextLinkButtonStyle(size: 12))
+        }
+        .font(.system(size: 12))
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .background(AICardBackground())
     }
 }
 

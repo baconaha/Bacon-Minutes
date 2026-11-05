@@ -37,6 +37,30 @@ struct ImportDialog: View {
                 }
             }
 
+            VStack(alignment: .leading, spacing: 6) {
+                Button {
+                    app.importDraft.linkOnly.toggle()
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: app.importDraft.linkOnly ? "checkmark.square.fill" : "square")
+                            .font(.system(size: 15))
+                            .foregroundStyle(app.importDraft.linkOnly ? Color.brand : Color.textTertiary)
+                        Text(L("只链接文件路径（不复制到应用）"))
+                            .font(.system(size: 13))
+                            .foregroundStyle(Color.textPrimary)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                Text(app.importDraft.linkOnly
+                     ? L("链接后，源文件被移动、改名，或所在的磁盘、NAS 断开时，需要在妙记里「重新检测路径」或重新导入。")
+                     : L("默认把源文件复制一份保存到应用内，之后原文件移动、改名或删除，都不影响播放。"))
+                    .font(.system(size: 12))
+                    .foregroundStyle(app.importDraft.linkOnly ? Color.warningText : Color.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.leading, 23)
+            }
+
             HStack(spacing: 12) {
                 Spacer()
                 Button(L("取消")) { app.showImportDialog = false }
