@@ -138,6 +138,17 @@ export function transcriptHash(transcript) {
   return fnv1a(s);
 }
 
+/**
+ * Fingerprint of the cues alone (text and timing, not speaker names), used to tell whether an
+ * exported summary belongs to this recording even after speakers were renamed. Same as
+ * `Transcript.cuesHash` in the Mac app.
+ */
+export function cuesHash(transcript) {
+  let s = '';
+  for (const c of transcript.cues) s += `${Math.round(c.start * 1000)}|${Math.round(c.end * 1000)}|${c.text}\n`;
+  return fnv1a(s);
+}
+
 export function speakerName(transcript, id) {
   return transcript?.speakers.find((s) => s.id === id)?.name ?? id;
 }

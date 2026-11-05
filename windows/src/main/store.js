@@ -1,5 +1,7 @@
-// On-disk library: <userData>/minutes/<uuid>/{meta.json, transcript.json, summary.json, source.srt, thumbs/cover.jpg}
-// and <userData>/folders.json. Same layout as the Mac app.
+// On-disk library: <userData>/minutes/<uuid>/{meta.json, transcript.json, summaries.json, source.srt,
+// thumbs/cover.jpg, media/<file>} and <userData>/folders.json. Same layout as the Mac app.
+// Nothing here touches a minute's linked media file: on an unreachable network share any such
+// call can block the main process, so media checks go through the file-check process (probe.js).
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -8,14 +10,6 @@ import { parseSRT } from '../core/srt.js';
 import { fold } from '../core/text.js';
 import { baseName } from '../core/pairing.js';
 import { L } from '../core/i18n.js';
-
-function fileSize(p) {
-  try {
-    return fs.statSync(p).size;
-  } catch {
-    return null;
-  }
-}
 
 function readJSON(file) {
   try {
@@ -89,8 +83,20 @@ export class Library {
     }
   }
 
+  /** Folder holding media imported into the app. */
+  mediaDir(id) {
+    return path.join(this.folder(id), 'media');
+  }
+
+  /** The playable path: the in-app copy for imported minutes, else the linked file. */
+  mediaPathOf(m) {
+    return m.storage === 'imported' ? path.join(this.mediaDir(m.id), m.mediaFileName) : m.mediaPath;
+  }
+
   withExtras(m) {
-    return { ...m, coverURL: this.coverURL(m.id), mediaExists: !!m.mediaPath && fs.existsSync(m.mediaPath) };
+    const out = { ...m, storage: m.storage || 'linked', coverURL: this.coverURL(m.id) };
+    if (out.storage === 'imported') out.mediaPath = this.mediaPathOf(out);
+    return out;
   }
 
   /** All minutes. Trash is kept until the user deletes it. */
@@ -104,16 +110,7 @@ export class Library {
     }
     for (const d of dirs) {
       const meta = readJSON(path.join(this.root, d.name, 'meta.json'));
-      if (!meta?.id) continue;
-      // Minutes imported before sizes were recorded get their media size measured once.
-      if (meta.mediaSize == null && meta.mediaPath) {
-        const size = fileSize(meta.mediaPath);
-        if (size != null) {
-          meta.mediaSize = size;
-          writeJSON(path.join(this.root, d.name, 'meta.json'), meta);
-        }
-      }
-      out.push(this.withExtras(meta));
+      if (meta?.id) out.push(this.withExtras(meta));
     }
     return out;
   }
@@ -126,7 +123,6 @@ export class Library {
     const clean = { ...meta };
     delete clean.coverURL;
     delete clean.mediaExists;
-    if (clean.mediaPath && clean.mediaSize == null) clean.mediaSize = fileSize(clean.mediaPath);
     writeJSON(path.join(this.folder(meta.id), 'meta.json'), clean);
     return this.withExtras(clean);
   }
@@ -138,8 +134,7 @@ export class Library {
     return this.save(m);
   }
 
-  create({ mediaPath, title, createdAt, duration, isAudioOnly, folderID }) {
-    const id = randomUUID();
+  create({ id = randomUUID(), mediaPath, title, createdAt, duration, isAudioOnly, folderID, storage = 'linked', mediaSize = null }) {
     return this.save({
       id,
       title,
@@ -157,7 +152,9 @@ export class Library {
       deletedAt: null,
       lastPlaybackPosition: 0,
       folderID: folderID || null,
-      mediaSize: fileSize(mediaPath),
+      mediaSize,
+      storage,
+      activeSummaryID: null,
     });
   }
 
@@ -170,14 +167,45 @@ export class Library {
     this.searchCache.delete(id);
   }
 
-  loadSummary(id) {
-    return readJSON(path.join(this.folder(id), 'summary.json'));
+  /** Every summary version, oldest first. A single summary.json from older builds is moved in. */
+  loadSummaries(id) {
+    const dir = this.folder(id);
+    const list = readJSON(path.join(dir, 'summaries.json'));
+    if (Array.isArray(list)) return list;
+    const old = readJSON(path.join(dir, 'summary.json'));
+    if (!old) return [];
+    const migrated = [{ ...old, id: old.id || randomUUID() }];
+    writeJSON(path.join(dir, 'summaries.json'), migrated);
+    fs.rmSync(path.join(dir, 'summary.json'), { force: true });
+    return migrated;
   }
 
-  saveSummary(id, s) {
-    const file = path.join(this.folder(id), 'summary.json');
-    if (s) writeJSON(file, s);
+  saveSummaries(id, list) {
+    const file = path.join(this.folder(id), 'summaries.json');
+    if (list?.length) writeJSON(file, list);
     else fs.rmSync(file, { force: true });
+  }
+
+  /** Adds a version and makes it the one shown; null when the minute is gone. */
+  appendSummary(id, summary) {
+    if (!this.get(id)) return null;
+    const list = [...this.loadSummaries(id), summary];
+    this.saveSummaries(id, list);
+    const minute = this.update(id, (m) => {
+      m.hasSummary = true;
+      m.activeSummaryID = summary.id;
+    });
+    return { list, minute };
+  }
+
+  /** A minute whose subtitles have this cues hash (exported summaries find their minute). */
+  findByCuesHash(hash, cueCount, cuesHashOf) {
+    for (const m of this.list()) {
+      if (m.deletedAt || (cueCount != null && m.cueCount !== cueCount)) continue;
+      const t = this.loadTranscript(m.id);
+      if (t && cuesHashOf(t) === hash) return m;
+    }
+    return null;
   }
 
   saveCover(id, base64) {

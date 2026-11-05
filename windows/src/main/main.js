@@ -2,11 +2,15 @@ import { app, BrowserWindow, ipcMain, dialog, shell, Menu, net, nativeTheme, saf
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { randomUUID } from 'node:crypto';
 import { Library } from './store.js';
 import { SettingsStore } from './settings.js';
-import { LLMClient } from '../core/llm.js';
+import { FsProbe } from './probe.js';
+import { LLMClient, applyFavorite, summaryParameters } from '../core/llm.js';
 import { generateSummary } from '../core/summary.js';
-import { MEDIA_EXT, SUB_EXT, isMedia, isSubtitle } from '../core/pairing.js';
+import { PROMPT_VERSION } from '../core/prompts.js';
+import { cuesHash } from '../core/paragraphs.js';
+import { MEDIA_EXT, SUB_EXT, isMedia, isSubtitle, isUnsupported, isSummaryFile, baseName, SUMMARY_EXT } from '../core/pairing.js';
 import { L, setLanguage, bestLanguage } from '../core/i18n.js';
 
 const E2E = process.env.LOCALMINUTES_E2E === '1';
@@ -32,6 +36,7 @@ if (process.env.LOCALMINUTES_USER_DATA) {
 let win = null;
 let library = null;
 let settings = null;
+let probe = null;
 const jobs = new Map();
 
 if (!E2E && !app.requestSingleInstanceLock()) {
@@ -151,6 +156,7 @@ function handle(channel, fn) {
 
 function expandPaths(paths) {
   const files = [];
+  let dirName = null;
   const walk = (p, depth) => {
     let st;
     try {
@@ -168,8 +174,38 @@ function expandPaths(paths) {
     }
   };
   for (const p of paths) walk(p, 0);
+  if (paths.length === 1) {
+    try {
+      if (fs.statSync(paths[0]).isDirectory()) dirName = baseName(paths[0].replace(/[\\/]+$/, ''));
+    } catch {
+      // gone meanwhile
+    }
+  }
   files.sort((a, b) => a.localeCompare(b, 'zh-Hans-CN', { numeric: true }));
-  return { media: files.filter(isMedia), subtitles: files.filter(isSubtitle), otherCount: files.filter((f) => !isMedia(f) && !isSubtitle(f)).length };
+  const other = files.filter((f) => !isMedia(f) && !isSubtitle(f));
+  return {
+    media: files.filter(isMedia),
+    subtitles: files.filter(isSubtitle),
+    unsupported: other.filter(isUnsupported),
+    summaryFiles: other.filter(isSummaryFile),
+    otherCount: other.length,
+    dirName,
+  };
+}
+
+/** Progress of a copy into the app, to the window that asked for it. */
+function sendCopyProgress(event, key, fraction) {
+  if (key != null && !event.sender.isDestroyed()) event.sender.send('copy:progress', { key, fraction });
+}
+
+function unreachableError() {
+  const e = new Error(L('所在的磁盘或网络位置（如 NAS）暂时没有响应。'));
+  e.code = 'unreachable';
+  return e;
+}
+
+function copyError(e) {
+  return new Error(L('复制到应用失败：{0}', e.code === 'stalled' ? L('所在的磁盘或网络位置（如 NAS）暂时没有响应。') : e.message));
 }
 
 function llmClient() {
@@ -178,7 +214,8 @@ function llmClient() {
 
 function registerIPC() {
   // ----- settings -----
-  handle('settings:get', () => ({ general: settings.general, llm: settings.llm, apiKey: settings.apiKey(), systemLanguage: systemLanguage() }));
+  handle('settings:get', () => ({ general: settings.general, llm: settings.llm, apiKey: settings.apiKey(), favorites: settings.favorites, systemLanguage: systemLanguage() }));
+  handle('settings:setFavorites', (list) => settings.setFavorites(list));
   handle('settings:setGeneral', (patch) => {
     const g = settings.setGeneral(patch);
     if ('language' in patch) applyLanguage();
@@ -217,21 +254,132 @@ function registerIPC() {
 
   // ----- library -----
   handle('lib:list', () => library.list());
-  handle('lib:save', (meta) => library.save(meta));
+  handle('lib:save', (meta) => {
+    // Media copied into the app never goes back to being a link, whatever an older copy says.
+    const disk = library.get(meta.id);
+    if (disk?.storage === 'imported' && meta.storage !== 'imported') {
+      meta = { ...meta, storage: 'imported', mediaPath: disk.mediaPath, mediaFileName: disk.mediaFileName };
+    }
+    return library.save(meta);
+  });
+  /** Changes only the given fields of what is on disk (positions, titles, flags). */
+  handle('lib:patch', (id, patch) => library.update(id, (m) => Object.assign(m, patch)));
   handle('lib:get', (id) => {
     const m = library.get(id);
     return m ? library.withExtras(m) : null;
   });
   handle('lib:transcript', (id) => library.loadTranscript(id));
   handle('lib:saveTranscript', (id, t) => library.saveTranscript(id, t));
-  handle('lib:summary', (id) => library.loadSummary(id));
-  handle('lib:saveSummary', (id, s) => library.saveSummary(id, s));
+  handle('lib:summaries', (id) => library.loadSummaries(id));
+  handle('lib:saveSummaries', (id, list) => library.saveSummaries(id, list));
+  handle('lib:appendSummary', (id, summary) => library.appendSummary(id, summary));
+  handle('lib:findBySummary', ({ cuesHash: hash, cueCount, mediaFileName }) => {
+    if (hash) {
+      const m = library.findByCuesHash(hash, cueCount, cuesHash);
+      if (m) return m;
+    }
+    const name = (mediaFileName || '').toLowerCase();
+    return (name && library.list().find((m) => !m.deletedAt && (m.mediaFileName || '').toLowerCase() === name)) || null;
+  });
   handle('lib:trash', (ids) => library.trash(ids));
   handle('lib:restore', (ids) => library.restore(ids));
   handle('lib:remove', (ids) => library.remove(ids));
   handle('lib:search', (q) => library.searchTranscripts(q));
   handle('lib:saveCover', (id, base64) => library.saveCover(id, base64));
-  handle('lib:create', (info) => library.create(info));
+  handle('lib:create', async (info, token, event) => {
+    const src = info.mediaPath;
+    const st = await probe.stat(src, { force: true });
+    if (st.state === 'unreachable') throw unreachableError();
+    if (st.state !== 'found') throw new Error(L('找不到该文件，可能已被移动或删除'));
+    if (info.storage === 'imported') {
+      const id = randomUUID();
+      const dest = path.join(library.mediaDir(id), baseName(src));
+      try {
+        await probe.copy(src, dest, (f) => sendCopyProgress(event, token, f));
+      } catch (e) {
+        fs.rmSync(library.folder(id), { recursive: true, force: true });
+        throw copyError(e);
+      }
+      return library.create({ ...info, id, mediaPath: dest, storage: 'imported', mediaSize: st.size });
+    }
+    return library.create({ ...info, storage: 'linked', mediaSize: st.size });
+  });
+  /** "导入到应用": copies a linked minute's media into the app (one way). */
+  handle('media:copyIntoApp', async (id, event) => {
+    const m = library.get(id);
+    if (!m) throw new Error(L('找不到该妙记'));
+    if (m.storage === 'imported') return library.withExtras(m);
+    const st = await probe.stat(m.mediaPath, { force: true });
+    if (st.state !== 'found') {
+      const e = new Error(L('请先在妙记里「重新检测路径」或「重新定位」，再导入应用。'));
+      e.code = 'notFound';
+      throw e;
+    }
+    const dest = path.join(library.mediaDir(id), baseName(m.mediaPath));
+    try {
+      await probe.copy(m.mediaPath, dest, (f) => sendCopyProgress(event, id, f));
+    } catch (e) {
+      fs.rmSync(dest, { force: true });
+      throw copyError(e);
+    }
+    if (!library.get(id)) {
+      fs.rmSync(library.folder(id), { recursive: true, force: true });
+      return null;
+    }
+    return library.update(id, (x) => {
+      x.storage = 'imported';
+      x.mediaPath = dest;
+      x.mediaFileName = baseName(dest);
+      if (x.mediaSize == null) x.mediaSize = st.size;
+    });
+  });
+  /** "重新定位" on a minute whose media is in the app: the new file is copied in too. */
+  handle('media:replaceImported', async (id, src, event) => {
+    const m = library.get(id);
+    if (!m) throw new Error(L('找不到该妙记'));
+    const st = await probe.stat(src, { force: true });
+    if (st.state !== 'found') throw st.state === 'unreachable' ? unreachableError() : new Error(L('找不到该文件，可能已被移动或删除'));
+    const old = library.mediaPathOf(m);
+    const dest = path.join(library.mediaDir(id), baseName(src));
+    try {
+      await probe.copy(src, dest, (f) => sendCopyProgress(event, id, f));
+    } catch (e) {
+      throw copyError(e);
+    }
+    if (path.resolve(old) !== path.resolve(dest)) fs.rmSync(old, { force: true });
+    return library.update(id, (x) => {
+      x.storage = 'imported';
+      x.mediaPath = dest;
+      x.mediaFileName = baseName(dest);
+      x.mediaSize = st.size;
+    });
+  });
+  /** Where a minute's media is: found, missing, or on a share that does not answer. */
+  handle('media:probe', async (id, opts = {}) => {
+    const m = library.get(id);
+    if (!m) throw new Error(L('找不到该妙记'));
+    const p = library.mediaPathOf(m);
+    if (m.storage === 'imported') {
+      try {
+        const st = await fs.promises.stat(p);
+        return { state: st.isFile() ? 'found' : 'missing', path: p, size: st.size };
+      } catch {
+        return { state: 'missing', path: p };
+      }
+    }
+    return { ...(await probe.stat(p, { force: !!opts.force })), path: p };
+  });
+  handle('media:stat', (p) => probe.stat(p));
+  /** Sizes of minutes imported before sizes were recorded, measured without blocking. */
+  handle('lib:backfillSizes', async () => {
+    const out = [];
+    for (const m of library.list()) {
+      if (m.mediaSize != null || m.storage === 'imported' || !m.mediaPath) continue;
+      const st = await probe.stat(m.mediaPath);
+      if (st.state === 'found') out.push(library.update(m.id, (x) => (x.mediaSize = st.size)));
+    }
+    return out;
+  });
   handle('lib:attachSrt', (id, srtPath) => library.attachSRT(id, srtPath));
   handle('lib:folders', () => library.folders());
   handle('lib:createFolder', (name) => library.createFolder(name));
@@ -241,10 +389,13 @@ function registerIPC() {
 
   // ----- files -----
   handle('fs:expand', (paths) => expandPaths(paths));
-  handle('fs:exists', (p) => !!p && fs.existsSync(p));
+  handle('fs:exists', async (p) => (await probe.stat(p)).state === 'found');
   handle('fs:fileURL', (p) => pathToFileURL(p).href);
-  handle('fs:reveal', (p) => {
-    if (p && fs.existsSync(p)) shell.showItemInFolder(p);
+  handle('fs:readText', (p) => fs.promises.readFile(p, 'utf8'));
+  handle('fs:reveal', async (p) => {
+    const st = await probe.stat(p, { force: true });
+    if (st.state === 'found') shell.showItemInFolder(p);
+    else if (st.state === 'unreachable') throw unreachableError();
     else throw new Error(L('找不到该文件，可能已被移动或删除'));
   });
 
@@ -267,6 +418,14 @@ function registerIPC() {
     const r = await dialog.showOpenDialog(win, { title: L('选择音视频文件（mp4 / mov / m4v / mp3 / m4a / wav / aac）'), properties: ['openFile'], filters: [mediaFilter()] });
     return r.canceled ? null : r.filePaths[0];
   });
+  handle('dialog:openSummaryFile', async () => {
+    const r = await dialog.showOpenDialog(win, {
+      title: L('选择纪要文件（.{0}）', SUMMARY_EXT),
+      properties: ['openFile'],
+      filters: [{ name: L('纪要文件'), extensions: [SUMMARY_EXT] }],
+    });
+    return r.canceled ? null : r.filePaths[0];
+  });
   handle('dialog:openSrt', async () => {
     const r = await dialog.showOpenDialog(win, { title: L('选择 SRT 字幕文件'), properties: ['openFile'], filters: [srtFilter()] });
     return r.canceled ? null : r.filePaths[0];
@@ -286,6 +445,12 @@ function registerIPC() {
   handle('dialog:saveText', async ({ text, name, ext }) => {
     const fallback = L('妙记');
     const safe = (name || fallback).replace(/[\\/:*?"<>|]/g, '_').slice(0, 120) || fallback;
+    // End-to-end tests save without the native dialog.
+    if (E2E && process.env.BACON_E2E_SAVE_DIR) {
+      fs.mkdirSync(process.env.BACON_E2E_SAVE_DIR, { recursive: true });
+      fs.writeFileSync(path.join(process.env.BACON_E2E_SAVE_DIR, `${safe}.${ext}`), text, 'utf8');
+      return true;
+    }
     const r = await dialog.showSaveDialog(win, { defaultPath: `${safe}.${ext}`, filters: [{ name: ext.toUpperCase(), extensions: [ext] }] });
     if (r.canceled || !r.filePath) return false;
     fs.writeFileSync(r.filePath, '﻿'.repeat(ext === 'txt' ? 1 : 0) + text, 'utf8');
@@ -303,22 +468,23 @@ function registerIPC() {
   // ----- LLM -----
   handle('llm:test', (config, apiKey) => llmClient().testConnection(config, apiKey));
   handle('llm:models', (config, apiKey) => llmClient().listModels(config, apiKey));
-  handle('llm:generate', async ({ jobId, input }, event) => {
+  handle('llm:generate', async ({ jobId, input, favorite }, event) => {
     const ac = new AbortController();
     jobs.set(jobId, ac);
     try {
-      const config = settings.llm;
+      // A starred model runs on its own endpoint and provider key; the rest of the settings stay.
+      const config = favorite ? applyFavorite(settings.llm, favorite) : settings.llm;
       const draft = await generateSummary({
         client: llmClient(),
         input,
         config,
-        apiKey: settings.apiKey(),
+        apiKey: settings.apiKey(config.presetID),
         signal: ac.signal,
         progress: (p) => {
           if (!event.sender.isDestroyed()) event.sender.send('llm:progress', { jobId, ...p });
         },
       });
-      return { draft, model: config.model };
+      return { draft, model: config.model, parameters: summaryParameters(config, PROMPT_VERSION) };
     } finally {
       jobs.delete(jobId);
     }
@@ -334,6 +500,7 @@ app.whenReady().then(() => {
   if (E2E && process.env.LOCALMINUTES_THEME) nativeTheme.themeSource = process.env.LOCALMINUTES_THEME;
   const userData = app.getPath('userData');
   library = new Library(path.join(userData, 'minutes'));
+  probe = new FsProbe(path.join(__dirname, 'fs-worker.cjs'));
   settings = new SettingsStore(path.join(userData, 'settings.json'), safeStorage);
   applyLanguage();
   registerIPC();

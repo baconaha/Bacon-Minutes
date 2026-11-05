@@ -25,6 +25,15 @@ await Promise.all([
   }),
   build({
     ...common,
+    entryPoints: [join(root, 'src/main/fsWorker.js')],
+    outfile: join(dist, 'fs-worker.cjs'),
+    platform: 'node',
+    format: 'cjs',
+    target: 'node22',
+    external: ['electron'],
+  }),
+  build({
+    ...common,
     entryPoints: [join(root, 'src/preload/preload.js')],
     outfile: join(dist, 'preload.cjs'),
     platform: 'node',

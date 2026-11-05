@@ -295,21 +295,22 @@ export function Player({ model, height }) {
       {/* No spinner while loading: video stays black and fades in on its first frame;
           audio shows its cover at once. */}
       <video ref={video} src={url || undefined} preload="auto" class={!m.isAudioOnly && ready && model.videoReady.value ? 'shown' : ''} />
-      {m.isAudioOnly && state !== 'missing' && state !== 'error' && (
+      {m.isAudioOnly && state !== 'missing' && state !== 'unreachable' && state !== 'error' && (
         <div class="audio-cover">
           <Logo size={56} />
           <div>{m.mediaFileName}</div>
         </div>
       )}
-      {(state === 'missing' || state === 'error') && (
+      {(state === 'missing' || state === 'unreachable') && <MissingMedia model={model} />}
+      {state === 'error' && (
         <div class="player-msg">
           <Icon name="warning" size={30} />
-          <div class="title">{state === 'missing' ? L('找不到媒体文件') : model.mediaError.value}</div>
+          <div class="title">{model.mediaError.value}</div>
           <div class="sub" title={m.mediaPath}>
             {m.mediaFileName}
           </div>
           <button class="btn-primary compact" onClick={() => model.relocateMedia()}>
-            {L('重新定位')}
+            {L('重新定位…')}
           </button>
           <div class="sub">{L('文字记录与纪要仍可正常使用')}</div>
         </div>
@@ -340,6 +341,48 @@ export function Player({ model, height }) {
           <div style={{ width: `${Math.min(100, (model.currentTime.value / Math.max(model.totalDuration, 0.001)) * 100)}%` }} />
         </div>
       )}
+    </div>
+  );
+}
+
+/** Shown when the media cannot be played: where it was, and ways to get it back. */
+function MissingMedia({ model }) {
+  const m = model.minute.value;
+  const linked = m.storage !== 'imported';
+  const unreachable = model.mediaState.value === 'unreachable';
+  const busy = model.rechecking.value;
+  const failed = model.recheckFailed.value;
+  const title = !linked ? L('应用内的源文件已丢失') : unreachable ? L('无法访问源文件所在位置') : L('原路径已找不到文件');
+  let note = L('文字记录与纪要仍可正常使用');
+  if (failed) {
+    note = unreachable ? L('仍然无法访问。请确认已连接到所在的磁盘或网络（如 NAS）后再试。') : L('仍未找到文件。把文件移回原路径后再检测，或「重新定位」到新位置。');
+  } else if (linked && unreachable) {
+    note = L('所在的磁盘或网络位置（如 NAS）没有响应。文字记录与纪要仍可正常使用。');
+  }
+  return (
+    <div class="player-msg missing">
+      <Icon name={unreachable ? 'driveWarn' : 'warning'} size={30} />
+      <div class="title">{title}</div>
+      {linked && m.mediaPath ? (
+        <div class="path">
+          <div class="label">{L('原路径')}</div>
+          <div class="value">{m.mediaPath}</div>
+        </div>
+      ) : (
+        <div class="sub">{m.mediaFileName}</div>
+      )}
+      <div class="actions">
+        {linked && (
+          <button class="btn-primary compact" disabled={busy} onClick={() => model.recheckMedia()}>
+            {busy ? <span class="spinner light" /> : <Icon name="refresh" size={14} />}
+            <span>{busy ? L('正在检测…') : L('重新检测路径')}</span>
+          </button>
+        )}
+        <button class="btn-ghost-light compact" disabled={busy} onClick={() => model.relocateMedia()}>
+          {linked ? L('重新定位…') : L('选择文件…')}
+        </button>
+      </div>
+      <div class={`sub ${failed ? 'failed' : ''}`}>{note}</div>
     </div>
   );
 }

@@ -3,6 +3,9 @@
 
 import { OUTPUT_LANGUAGES } from './llm.js';
 
+/** Bumped whenever the prompt changes; recorded with each summary (same as the Mac app). */
+export const PROMPT_VERSION = 2;
+
 export const SYSTEM_PROMPT = `你是一名专业的会议、课堂与视频内容纪要助手。你会收到一份带时间戳的文字记录（来自字幕或语音识别，可能含错别字、口语重复和断句错误），请据此生成条理清晰的「智能纪要」。
 
 【输入格式】

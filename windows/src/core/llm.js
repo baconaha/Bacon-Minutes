@@ -94,6 +94,63 @@ export function applyPreset(config, presetID) {
   return c;
 }
 
+// ----- starred models -----
+
+export const favoriteKey = (presetID, baseURL, model) => `${presetID}|${(baseURL || '').trim().toLowerCase()}|${(model || '').trim()}`;
+
+/** A starred model: the endpoint plus the model name (same fields as the Mac app). */
+export function makeFavorite(config, model = config.model) {
+  return {
+    presetID: config.presetID,
+    protocol: config.protocol,
+    baseURL: (config.baseURL || '').trim(),
+    model: (model || '').trim(),
+    azureAPIVersion: config.azureAPIVersion,
+    anthropicVersion: config.anthropicVersion,
+    customHeaders: config.customHeaders || [],
+  };
+}
+
+export const favoriteID = (f) => favoriteKey(f.presetID, f.baseURL, f.model);
+
+/** `base` pointed at the favorite's model; output language, limits and timeout stay as set. */
+export function applyFavorite(base, f) {
+  const c = { ...base };
+  const wasAnthropic = c.protocol === 'anthropic';
+  Object.assign(c, {
+    presetID: f.presetID,
+    protocol: f.protocol,
+    baseURL: f.baseURL,
+    model: f.model,
+    azureAPIVersion: f.azureAPIVersion ?? c.azureAPIVersion,
+    anthropicVersion: f.anthropicVersion ?? c.anthropicVersion,
+    customHeaders: f.customHeaders || [],
+  });
+  if (f.protocol === 'anthropic' && !wasAnthropic) {
+    c.temperatureEnabled = false;
+    c.maxOutputTokens = Math.max(c.maxOutputTokens, 16000);
+  } else if (f.protocol !== 'anthropic' && wasAnthropic) {
+    c.temperatureEnabled = true;
+    if (c.maxOutputTokens === 16000) c.maxOutputTokens = 4096;
+  }
+  return c;
+}
+
+/** What gets recorded with a summary made with `config` (same keys as the Mac app). */
+export function summaryParameters(config, promptVersion) {
+  return {
+    presetID: config.presetID,
+    providerName: preset(config.presetID)?.name || '自定义',
+    protocolKind: config.protocol,
+    baseURL: (config.baseURL || '').trim(),
+    outputLanguage: config.outputLanguage,
+    temperature: config.temperatureEnabled ? config.temperature : null,
+    maxOutputTokens: config.maxOutputTokens,
+    maxInputChars: config.maxInputChars,
+    promptVersion,
+  };
+}
+
 export const isConfigured = (c) => !!c.baseURL?.trim() && !!c.model?.trim() && !c.baseURL.includes('{');
 export const compatKey = (c) => `${c.protocol}|${c.baseURL.trim().toLowerCase()}|${c.model.trim()}`;
 

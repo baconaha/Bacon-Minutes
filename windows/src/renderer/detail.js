@@ -1,7 +1,28 @@
 // State and behaviour of one open minute (§2–§6).
 import { signal, computed, batch } from '@preact/signals';
-import { call, lm, general, showToast, upsertMinute, alertError, importSummaryText, registerDetailModel, llm } from './state.js';
-import { buildParagraphs, separator, CueTimeline, speakerPercentages, speakerIntervals, transcriptHash } from '../core/paragraphs.js';
+import {
+  call,
+  general,
+  showToast,
+  upsertMinute,
+  alertError,
+  importSummaryText,
+  registerDetailModel,
+  llm,
+  summaryJobs,
+  favorites,
+  startSummary,
+  cancelSummary,
+  clearSummaryFailure,
+  confirmRequest,
+  copyingMedia,
+  setCopying,
+} from './state.js';
+import { buildParagraphs, separator, CueTimeline, speakerPercentages, speakerIntervals, transcriptHash, cuesHash } from '../core/paragraphs.js';
+import { favoriteID, isConfigured } from '../core/llm.js';
+import { makeSummaryFile, encodeSummaryFile, SUMMARY_FILE_EXT } from '../core/summaryFile.js';
+import { createdDate } from '../core/time.js';
+import { readSummaryFile, confirmAndImportSummary, APP_IDENTITY } from './summaryFiles.js';
 import { usesHours } from '../core/time.js';
 import { fold, occurrences } from '../core/text.js';
 import { exportSRT, exportTXT, exportMarkdown, summaryMarkdown } from '../core/exporter.js';
@@ -19,11 +40,34 @@ export class DetailModel {
     this.paragraphs = signal([]);
     this.bodies = [];
     this.timeline = new CueTimeline([]);
-    this.summary = signal(null);
-    this.summaryState = signal({ status: 'idle' });
+    /** Every summary version, oldest first; `summary` is the one shown. */
+    this.summaries = signal([]);
+    this.summary = computed(() => {
+      const list = this.summaries.value;
+      const id = this.minute.value.activeSummaryID;
+      return list.find((x) => x.id === id) || list[list.length - 1] || null;
+    });
+    /** Problem found before a request was sent (no subtitles, API not set up). */
+    this.summaryNotice = signal(null);
+    this.summaryState = computed(() => {
+      const job = summaryJobs.value.get(this.minute.value.id);
+      if (job?.phase === 'running') return { status: 'generating', text: job.text, model: job.model };
+      if (job?.phase === 'failed') return { status: 'failed', message: job.text };
+      if (this.summaryNotice.value) return { status: 'failed', message: this.summaryNotice.value };
+      return { status: 'idle' };
+    });
+    /** Model picked in the summary tab: a favorite's id, or null for the default in Settings. */
+    this.chosenModelID = signal(null);
+    this.chosenFavorite = computed(() => {
+      const id = this.chosenModelID.value;
+      return (id && favorites.value.find((f) => favoriteID(f) === id)) || null;
+    });
     this.rightTab = signal('transcript');
     this.leftTab = signal('speakers');
-    this.mediaState = signal('loading'); // loading | ready | missing | error
+    this.mediaState = signal('loading'); // loading | ready | missing | unreachable | error
+    /** "重新检测路径" in progress, and whether the last one found nothing. */
+    this.rechecking = signal(false);
+    this.recheckFailed = signal(false);
     this.mediaError = signal('');
     this.mediaURL = signal(null);
     /** True once the first video frame can be shown; the picture fades in then. */
@@ -68,8 +112,11 @@ export class DetailModel {
     this.tags = computed(() => {
       const out = [];
       if (this.mediaState.value === 'missing') out.push({ text: L('媒体缺失'), warn: true });
+      if (this.mediaState.value === 'unreachable') out.push({ text: L('无法访问源文件'), warn: true });
       if (!this.transcript.value) out.push({ text: L('无字幕'), warn: true });
-      if (this.summary.value) out.push({ text: L('已生成纪要') });
+      const n = this.summaries.value.length;
+      if (n > 1) out.push({ text: L('{0} 份纪要', n) });
+      else if (n === 1) out.push({ text: L('已生成纪要') });
       return out;
     });
   }
@@ -79,11 +126,12 @@ export class DetailModel {
   /** Loads transcript and summary before the page is shown. */
   async prepare() {
     const id = this.minute.value.id;
-    const [transcript, summary] = await Promise.all([call('lib:transcript', id), call('lib:summary', id)]);
+    const [transcript, summaries] = await Promise.all([call('lib:transcript', id), call('lib:summaries', id)]);
     batch(() => {
       this.transcript.value = transcript;
-      this.summary.value = summary;
+      this.summaries.value = summaries;
     });
+    if (!!this.minute.value.hasSummary !== summaries.length > 0) await this.saveMinute({ hasSummary: summaries.length > 0 });
     this.rebuildDerived();
   }
 
@@ -95,15 +143,53 @@ export class DetailModel {
     this.saveTimer = setInterval(() => this.persistPosition(), 10000);
   }
 
-  async resolveMedia() {
-    const m = this.minute.value;
-    const exists = await call('fs:exists', m.mediaPath);
-    if (!exists) {
-      this.mediaState.value = 'missing';
+  /** Asks the main process where the media is; it never blocks on an unreachable share. */
+  async resolveMedia({ force = false, showLoading = true } = {}) {
+    if (showLoading) this.mediaState.value = 'loading';
+    const r = await call('media:probe', this.minute.value.id, { force });
+    if (this.closed) return;
+    if (r.state !== 'found') {
+      this.mediaState.value = r.state === 'unreachable' ? 'unreachable' : 'missing';
       return;
     }
-    this.mediaURL.value = await call('fs:fileURL', m.mediaPath);
-    this.mediaState.value = 'loading';
+    batch(() => {
+      this.recheckFailed.value = false;
+      this.mediaState.value = 'loading';
+    });
+    this.mediaURL.value = await call('fs:fileURL', r.path);
+  }
+
+  /**
+   * "重新检测路径": looks again at the last known location, so a file moved back where it
+   * was comes back. `silent` is the automatic check when the window gets focus again.
+   */
+  async recheckMedia(silent = false) {
+    const st = this.mediaState.value;
+    if (this.rechecking.value || (st !== 'missing' && st !== 'unreachable')) return;
+    this.rechecking.value = true;
+    if (!silent) this.recheckFailed.value = false;
+    try {
+      await this.resolveMedia({ force: !silent, showLoading: false });
+    } finally {
+      this.rechecking.value = false;
+    }
+    const now = this.mediaState.value;
+    if (now === 'missing' || now === 'unreachable') {
+      if (!silent) this.recheckFailed.value = true;
+    } else if (!silent) {
+      showToast(L('已重新找到源文件'));
+    }
+  }
+
+  /** The media was copied into the app: play from the copy at the same position. */
+  async mediaMovedIntoApp(m) {
+    const position = this.video?.currentTime ?? this.minute.value.lastPlaybackPosition ?? 0;
+    const wasPlaying = this.video && !this.video.paused;
+    this.minute.value = { ...this.minute.value, storage: m.storage, mediaPath: m.mediaPath, mediaFileName: m.mediaFileName, mediaSize: m.mediaSize, lastPlaybackPosition: position };
+    this.previewCache.clear();
+    this.previewVideo = null;
+    this.resumePlaying = wasPlaying;
+    await this.resolveMedia();
   }
 
   async close() {
@@ -111,7 +197,7 @@ export class DetailModel {
     await this.persistPosition();
     clearInterval(this.saveTimer);
     clearTimeout(this.searchTimer);
-    if (this.jobId) call('llm:cancel', this.jobId);
+    // Summary generation is not cancelled: it belongs to the app and finishes in the background.
     cancelAnimationFrame(this.raf);
     this.video?.pause();
     this.view?.clearHighlights();
@@ -127,12 +213,13 @@ export class DetailModel {
     const t = this.video.currentTime;
     const m = this.minute.value;
     if (Math.abs(t - (m.lastPlaybackPosition || 0)) < 0.5) return;
-    const saved = await call('lib:save', { ...m, lastPlaybackPosition: t });
+    const saved = await call('lib:patch', m.id, { lastPlaybackPosition: t });
     this.minute.value = saved;
   }
 
+  /** Writes only the changed fields, so it never undoes changes made elsewhere meanwhile. */
   async saveMinute(patch) {
-    const saved = await call('lib:save', { ...this.minute.value, ...patch });
+    const saved = await call('lib:patch', this.minute.value.id, patch);
     this.minute.value = saved;
     upsertMinute(saved);
     return saved;
@@ -168,6 +255,10 @@ export class DetailModel {
       el.playbackRate = this.rate.value;
       this.mediaState.value = 'ready';
       this.refreshHighlight(resume);
+      if (this.resumePlaying) {
+        this.resumePlaying = false;
+        this.play();
+      }
     });
     el.addEventListener('loadeddata', () => (this.videoReady.value = true));
     el.addEventListener('emptied', () => (this.videoReady.value = false));
@@ -268,22 +359,43 @@ export class DetailModel {
     if (this.video) this.video.muted = this.muted.value;
   }
 
+  /**
+   * "重新定位" / "更换媒体文件". A linked minute links to the new file; a minute whose media is
+   * in the app gets a copy of the new file instead.
+   */
   async relocateMedia() {
     const path = await call('dialog:openMedia');
     if (!path) return;
+    const id = this.minute.value.id;
     try {
       const info = await probeMedia(path);
-      await this.saveMinute({ mediaPath: path, mediaFileName: baseName(path), isAudioOnly: !info.hasVideo, duration: info.duration, mediaSize: null });
+      if (this.minute.value.storage === 'imported') {
+        if (copyingMedia.value.has(id)) return;
+        this.mediaURL.value = null;
+        this.mediaState.value = 'loading';
+        setCopying(id, 0);
+        let m;
+        try {
+          m = await call('media:replaceImported', id, path);
+        } finally {
+          setCopying(id, null);
+        }
+        this.minute.value = m;
+        await this.saveMinute({ isAudioOnly: !info.hasVideo, duration: info.duration });
+      } else {
+        const size = await call('media:stat', path);
+        await this.saveMinute({ mediaPath: path, mediaFileName: baseName(path), isAudioOnly: !info.hasVideo, duration: info.duration, mediaSize: size.size ?? null });
+      }
       if (info.coverBase64) {
-        await call('lib:saveCover', this.minute.value.id, info.coverBase64);
-        upsertMinute(await call('lib:get', this.minute.value.id));
+        await call('lib:saveCover', id, info.coverBase64);
+        upsertMinute(await call('lib:get', id));
       }
       this.previewCache.clear();
       this.previewVideo = null;
-      this.mediaState.value = 'loading';
-      this.mediaURL.value = await call('fs:fileURL', path);
+      await this.resolveMedia();
     } catch (e) {
       alertError(L('无法使用该文件'), e.message);
+      if (this.minute.value.storage === 'imported') this.resolveMedia();
     }
   }
 
@@ -602,12 +714,23 @@ export class DetailModel {
     return found;
   }
 
+  /** Generates a new version with the model picked in the summary tab, in the background. */
   async generate() {
+    const id = this.minute.value.id;
+    this.summaryNotice.value = null;
+    clearSummaryFailure(id);
     const tr = this.transcript.value;
     if (!tr) {
-      this.summaryState.value = { status: 'failed', message: L('请先导入 SRT 字幕，再生成智能纪要') };
+      this.summaryNotice.value = L('请先导入 SRT 字幕，再生成智能纪要');
       return;
     }
+    const fav = this.chosenFavorite.value;
+    const model = fav ? fav.model : llm.value.model;
+    if (!fav && !isConfigured(llm.value)) {
+      this.summaryNotice.value = L('请先在 API 设置中填写 Base URL 与模型');
+      return;
+    }
+    if (!model) return;
     const input = buildSummaryInput({
       title: this.minute.value.title,
       duration: this.totalDuration,
@@ -616,41 +739,69 @@ export class DetailModel {
       insertComma: general.value.insertComma,
       language: llm.value.outputLanguage,
     });
-    const jobId = `job-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    this.jobId = jobId;
-    const hash = this.hash.value;
-    batch(() => {
-      this.summaryState.value = { status: 'generating', text: L('正在生成…') };
-      this.rightTab.value = 'summary';
-    });
-    const off = lm.onProgress((p) => {
-      if (p.jobId !== jobId || this.jobId !== jobId) return;
-      const text = p.type === 'part' ? L('正在生成… 第 {0}/{1} 部分', p.i, p.n) : p.type === 'merging' ? L('正在合并各部分…') : L('正在生成…');
-      this.summaryState.value = { status: 'generating', text };
-    });
-    try {
-      const { draft, model } = await call('llm:generate', { jobId, input });
-      if (this.jobId !== jobId) return;
-      const summary = { ...draft, model, generatedAt: new Date().toISOString(), transcriptHash: hash, feedback: null, chaptersFeedback: null };
-      await call('lib:saveSummary', this.minute.value.id, summary);
-      batch(() => {
-        this.summary.value = summary;
-        this.summaryState.value = { status: 'idle' };
-      });
-      await this.saveMinute({ hasSummary: true });
-    } catch (e) {
-      if (this.jobId !== jobId) return;
-      this.summaryState.value = e.code === 'cancelled' ? { status: 'idle' } : { status: 'failed', message: e.message };
-    } finally {
-      off();
-      if (this.jobId === jobId) this.jobId = null;
-    }
+    this.rightTab.value = 'summary';
+    await startSummary({ minuteID: id, input, favorite: fav, transcriptHash: this.hash.value, cuesHash: cuesHash(tr) });
   }
 
   cancelGeneration() {
-    if (this.jobId) call('llm:cancel', this.jobId);
-    this.jobId = null;
-    this.summaryState.value = { status: 'idle' };
+    cancelSummary(this.minute.value.id);
+  }
+
+  /** A version was added (generated or imported) while this page is open. */
+  summariesChanged(list, minute) {
+    batch(() => {
+      this.summaries.value = list;
+      this.minute.value = { ...this.minute.value, hasSummary: minute.hasSummary, activeSummaryID: minute.activeSummaryID };
+    });
+  }
+
+  selectSummary(sid) {
+    if (this.minute.value.activeSummaryID === sid) return;
+    this.saveMinute({ activeSummaryID: sid });
+  }
+
+  requestDeleteSummary(sid) {
+    const s = this.summaries.value.find((x) => x.id === sid);
+    if (!s) return;
+    confirmRequest.value = {
+      title: L('删除这份纪要？'),
+      message: L('{0} · {1} 生成的纪要会被删除，其他版本不受影响。', s.model, createdDate(s.generatedAt)),
+      confirmTitle: L('删除'),
+      onConfirm: async () => {
+        const list = this.summaries.value.filter((x) => x.id !== sid);
+        await call('lib:saveSummaries', this.minute.value.id, list);
+        this.summaries.value = list;
+        const active = this.minute.value.activeSummaryID === sid ? list[list.length - 1]?.id || null : this.minute.value.activeSummaryID;
+        await this.saveMinute({ hasSummary: list.length > 0, activeSummaryID: active });
+        showToast(L('已删除纪要'));
+      },
+    };
+  }
+
+  // ---------- summary files ----------
+
+  async exportSummaryFile() {
+    const s = this.summary.value;
+    if (!s) return;
+    const file = makeSummaryFile({ summary: s, minute: this.minute.value, transcript: this.transcript.value, app: APP_IDENTITY });
+    const ok = await call('dialog:saveText', { text: encodeSummaryFile(file), name: `${this.minute.value.title} · ${s.model}`, ext: SUMMARY_FILE_EXT });
+    if (ok) showToast(L('已导出'));
+  }
+
+  async chooseAndImportSummaryFile() {
+    const path = await call('dialog:openSummaryFile');
+    if (path) await this.importSummaryFile(path);
+  }
+
+  /** Checks the file against this minute and asks before importing when they differ. */
+  async importSummaryFile(path) {
+    try {
+      const file = await readSummaryFile(path);
+      this.rightTab.value = 'summary';
+      confirmAndImportSummary(file, this.minute.value.id);
+    } catch (e) {
+      alertError(L('无法导入纪要'), L('{0}：{1}', baseName(path), e.message));
+    }
   }
 
   async copySummaryMarkdown() {

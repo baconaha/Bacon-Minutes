@@ -28,6 +28,11 @@ const check = (name, ok, detail = '') => results.push(`${ok ? 'PASS' : 'FAIL'} $
   check('app name in sidebar', (await page.textContent('.sidebar-head')).includes('培根妙记'));
 
   await ev(`window.__lm.importPaths([${JSON.stringify(path.join(WORK, 'media'))}])`);
+  await page.waitForSelector('.review-row', { timeout: 10000 });
+  await page.waitForFunction(() => window.__lm.state.importReview.value?.rows.value.every((r) => r.inspected), null, { timeout: 30000 });
+  await page.click('.review-storage .rs-check');
+  await page.click('.review-foot .btn-primary');
+  await page.waitForFunction(() => document.querySelectorAll('.row').length === 2, null, { timeout: 30000 });
   await page.waitForTimeout(800);
   check('two rows imported', (await page.$$('.row')).length === 2);
   const stats = await page.textContent('.lib-stats');

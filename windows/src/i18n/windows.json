@@ -258,5 +258,15 @@
   "fr": "Audio, vidéo et sous-titres",
   "pt": "Áudio, vídeo e legendas",
   "ru": "Аудио, видео и субтитры"
+ },
+ "纪要文件": {
+  "en": "Summary files",
+  "ja": "サマリーファイル",
+  "ko": "요약 파일",
+  "es": "Archivos de resumen",
+  "vi": "Tệp tóm tắt",
+  "fr": "Fichiers de résumé",
+  "pt": "Arquivos de resumo",
+  "ru": "Файлы сводки"
  }
 }

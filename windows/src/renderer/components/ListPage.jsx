@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import {
   section, listQuery, visibleMinutes, loading, selection, importing, importDialog, settingsOpen, general, folders,
   openMinute, requestMoveToTrash, restoreMinutes, deleteForever, revealMedia, reimportSRT, renameTarget, updateGeneral,
+  copyingMedia, requestImportIntoApp, isGeneratingSummary, importProgress,
   runListSearch, listSearchFocus, createFolder, renameFolder, requestDeleteFolder, moveMinutes, importIntoFolder,
   renamingFolderID, folderInfoTarget, moveTarget, currentFolderID, sectionTitle, folderByID, libraryStats, byteText,
   folderSelection, requestDeleteFolders,
@@ -124,6 +125,15 @@ function FolderRow({ folder, openContext }) {
   );
 }
 
+/** At least 2 px each way, so a straight vertical or horizontal drag still draws a visible box. */
+export function marqueeRect(a, b, minSide = 2) {
+  const w = Math.max(Math.abs(b.x - a.x), minSide);
+  const h = Math.max(Math.abs(b.y - a.y), minSide);
+  const left = b.x >= a.x ? a.x : a.x - w;
+  const top = b.y >= a.y ? a.y : a.y - h;
+  return { left, top, right: left + w, bottom: top + h };
+}
+
 /**
  * Folder rows with drag-to-select: a drag that starts on empty space draws a selection
  * rectangle, and every folder it touches turns gray and is selected for batch actions.
@@ -149,7 +159,7 @@ function FolderList({ openContext }) {
       if (!moved && Math.hypot(p.x - start.x, p.y - start.y) < 3) return;
       if (!moved) selection.value = new Set();
       moved = true;
-      const r = { left: Math.min(start.x, p.x), top: Math.min(start.y, p.y), right: Math.max(start.x, p.x), bottom: Math.max(start.y, p.y) };
+      const r = marqueeRect(start, p);
       setRect(r);
       const o = el.getBoundingClientRect();
       const next = new Set(base);
@@ -157,7 +167,8 @@ function FolderList({ openContext }) {
         const b = row.getBoundingClientRect();
         const top = b.top - o.top + el.scrollTop;
         const left = b.left - o.left;
-        if (left < r.right && left + b.width > r.left && top < r.bottom && top + b.height > r.top) next.add(row.dataset.id);
+        // Touching edges count, so a straight vertical or horizontal drag selects what it crosses.
+        if (left <= r.right && left + b.width >= r.left && top <= r.bottom && top + b.height >= r.top) next.add(row.dataset.id);
       }
       const cur = folderSelection.value;
       if (next.size !== cur.size || [...next].some((id) => !cur.has(id))) folderSelection.value = next;
@@ -260,11 +271,44 @@ function ImportButton() {
   );
 }
 
+function importingText() {
+  const p = importProgress.value;
+  if (!p) return L('正在导入…');
+  let text = p.total > 1 ? L('正在导入 {0}/{1}', p.index, p.total) : L('正在导入…');
+  if (p.fraction != null) text += L(' · 复制到应用 {0}%', Math.round(p.fraction * 100));
+  return text;
+}
+
 function Thumb({ m }) {
   return (
     <div class="thumb">
       {m.coverURL ? <img src={m.coverURL} alt="" draggable={false} /> : <Icon name={m.isAudioOnly ? 'mic' : 'film'} />}
     </div>
+  );
+}
+
+/** "应用内" / "链接" (or copy progress) in the row's meta line. */
+function StorageLabel({ m }) {
+  const p = copyingMedia.value.get(m.id);
+  if (p != null)
+    return (
+      <span class="row-storage busy num">
+        <Icon name="download" size={11} />
+        {L('正在导入应用 {0}%', Math.round(p * 100))}
+      </span>
+    );
+  if (m.storage === 'imported')
+    return (
+      <span class="row-storage" title={L('源文件已复制到应用内')}>
+        <Icon name="drive" size={11} />
+        {L('应用内')}
+      </span>
+    );
+  return (
+    <span class="row-storage" title={m.mediaPath}>
+      <Icon name="link" size={11} />
+      {L('链接')}
+    </span>
   );
 }
 
@@ -275,6 +319,7 @@ function rowMenuItems(m) {
     m.folderID && { label: L('移出文件夹'), icon: 'folderMinus', onClick: () => moveMinutes([m.id], null) },
     { label: L('在资源管理器中显示媒体'), icon: 'search', onClick: () => revealMedia(m) },
     { label: L('重新导入 SRT…'), icon: 'bubble', onClick: () => reimportSRT(m.id) },
+    m.storage !== 'imported' && { label: L('将源文件导入应用…'), icon: 'drive', disabled: copyingMedia.value.has(m.id), onClick: () => requestImportIntoApp(m.id) },
     'sep',
     { label: L('移到回收站'), icon: 'trash', danger: true, onClick: () => requestMoveToTrash([m.id]) },
   ].filter(Boolean);
@@ -312,16 +357,25 @@ function Row({ m, trash, openContext }) {
         <Thumb m={m} />
         <div style={{ minWidth: 0 }}>
           <div class="row-title">
-            {m.hasSummary && !trash && (
-              <span style={{ marginRight: 6 }}>
-                <Tag text={L('纪要')} />
+            {!trash && isGeneratingSummary(m.id) ? (
+              <span class="gen-tag">
+                <i />
+                {L('纪要生成中')}
               </span>
+            ) : (
+              m.hasSummary &&
+              !trash && (
+                <span style={{ marginRight: 6 }}>
+                  <Tag text={L('纪要')} />
+                </span>
+              )
             )}
             {m.title}
           </div>
           <div class="row-sub">
             <span>{duration(m.duration)}</span>
             {!m.srtFileName && <span>{L('· 无字幕')}</span>}
+            <StorageLabel m={m} />
             {folder && (
               <span class="row-folder">
                 <Icon name="folder" size={11} />
@@ -483,7 +537,7 @@ export function ListPage() {
         <div class="list-title-row">
           {inFolder && <Icon name="folderFill" size={20} style={{ color: 'var(--brand)' }} />}
           <h1>{sectionTitle.value}</h1>
-          {importing.value && <span style={{ color: 'var(--text-3)', fontSize: 12 }}>{L('正在导入…')}</span>}
+          {importing.value && <span class="importing-text num">{importingText()}</span>}
           <div style={{ flex: 1 }} />
           {!trash && <ImportButton />}
         </div>

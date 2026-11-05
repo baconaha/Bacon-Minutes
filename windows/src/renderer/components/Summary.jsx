@@ -1,8 +1,9 @@
 import { useLayoutEffect, useRef, useState } from 'preact/hooks';
-import { llmReady, settingsOpen } from '../state.js';
+import { llmReady, settingsOpen, llm, favorites } from '../state.js';
 import { timestamp, createdDate } from '../../core/time.js';
+import { favoriteID, preset, presetName } from '../../core/llm.js';
 import { L } from '../../core/i18n.js';
-import { Icon, MoreButton, Skeleton } from './ui.jsx';
+import { Icon, MoreButton, Skeleton, Menu } from './ui.jsx';
 import { APIForm } from './Settings.jsx';
 
 function CardTitle({ title, children }) {
@@ -181,12 +182,13 @@ function Placeholder({ icon, title, message, children }) {
   );
 }
 
-function Generating({ text, cancel }) {
+function Generating({ text, model: modelName, cancel }) {
   return (
     <div class="generating">
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 18, color: 'var(--text-2)' }}>
         <Icon name="sparkle" class="sparkle" />
         <span>{text}</span>
+        {modelName && <span class="gen-model">· {modelName}</span>}
         <span style={{ flex: 1 }} />
         <button class="btn-link" onClick={cancel}>
           {L('取消')}
@@ -206,28 +208,118 @@ function Generating({ text, cancel }) {
   );
 }
 
+const providerLabel = (id) => {
+  const p = preset(id);
+  return p ? presetName(p) : L('自定义');
+};
+
+/** Picks the model for the next generation: the default from Settings or a starred one. */
+export function ModelPicker({ model }) {
+  const fav = model.chosenFavorite.value;
+  const def = llm.value;
+  const name = (fav ? fav.model : def.model) || L('未设置模型');
+  const items = [
+    {
+      label: def.model || L('未设置模型'),
+      detail: L('默认 · {0}', providerLabel(def.presetID)),
+      icon: 'settings',
+      selected: !fav,
+      disabled: !llmReady.value,
+      onClick: () => (model.chosenModelID.value = null),
+    },
+    'sep',
+    ...(favorites.value.length
+      ? favorites.value.map((f) => ({
+          label: f.model,
+          detail: providerLabel(f.presetID),
+          icon: 'starFill',
+          selected: fav && favoriteID(fav) === favoriteID(f),
+          onClick: () => (model.chosenModelID.value = favoriteID(f)),
+        }))
+      : [{ label: L('在设置的模型列表中点 ☆ 收藏后，可在这里切换'), icon: 'star', disabled: true }]),
+  ];
+  return (
+    <Menu
+      hover={false}
+      align="right"
+      minWidth={260}
+      title={L('生成纪要使用的模型')}
+      items={items}
+      trigger={({ open, toggle }) => (
+        <button class={`model-pick ${open ? 'open' : ''}`} onClick={toggle}>
+          <Icon name={fav ? 'starFill' : 'cpu'} size={12} class={fav ? 'star-on' : ''} />
+          <span class="mp-text">{name}</span>
+          <Icon name="chevronDown" size={10} class="sf-chevron" />
+        </button>
+      )}
+    />
+  );
+}
+
+/** Switches between the summary versions of this minute. */
+function VersionPicker({ model, s }) {
+  const list = model.summaries.value;
+  const index = list.findIndex((x) => x.id === s.id) + 1;
+  const label = `${s.model} · ${createdDate(s.generatedAt)}`;
+  if (list.length <= 1) return <span class="version-label">{label}</span>;
+  return (
+    <Menu
+      hover={false}
+      minWidth={300}
+      title={L('切换纪要版本')}
+      items={[...list].reverse().map((x) => ({ label: x.model, detail: createdDate(x.generatedAt), icon: 'sparkle', selected: x.id === s.id, onClick: () => model.selectSummary(x.id) }))}
+      trigger={({ open, toggle }) => (
+        <button class={`version-pick ${open ? 'open' : ''}`} onClick={toggle}>
+          <span class="vp-badge">{L('版本 {0}/{1}', index, list.length)}</span>
+          <span class="version-label">{label}</span>
+          <Icon name="chevronDown" size={10} class="sf-chevron" />
+        </button>
+      )}
+    />
+  );
+}
+
 /** Right-hand "智能纪要" tab (§6). */
 export function SummaryPanel({ model }) {
   const state = model.summaryState.value;
   const s = model.summary.value;
   let content;
-  if (state.status === 'generating') {
-    content = <Generating text={state.text} cancel={() => model.cancelGeneration()} />;
-  } else if (s) {
+  if (s) {
+    // A new version generating in the background shows as a banner above the current one.
     content = (
       <div class="sum-scroll">
-        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
-          <span style={{ fontSize: 11, color: 'var(--text-3)' }}>
-            {s.model} · {createdDate(s.generatedAt)}
-          </span>
+        <div class="sum-toolbar">
+          <VersionPicker model={model} s={s} />
           <span style={{ flex: 1 }} />
+          {state.status !== 'generating' && (
+            <>
+              <ModelPicker model={model} />
+              <button class="btn-link" style={{ fontSize: 12 }} title={L('用所选模型生成一份新的纪要，现有版本会保留')} onClick={() => model.generate()}>
+                {L('重新生成')}
+              </button>
+            </>
+          )}
           <MoreButton
             items={[
-              { label: L('重新生成'), icon: 'refresh', onClick: () => model.generate() },
               { label: L('复制为 Markdown'), icon: 'copy', onClick: () => model.copySummaryMarkdown() },
+              { label: L('导出纪要文件…'), icon: 'share', onClick: () => model.exportSummaryFile() },
+              { label: L('导入纪要文件…'), icon: 'download', onClick: () => model.chooseAndImportSummaryFile() },
+              'sep',
+              { label: L('删除这份纪要'), icon: 'trash', danger: true, onClick: () => model.requestDeleteSummary(s.id) },
             ]}
           />
         </div>
+        {state.status === 'generating' && (
+          <div class="gen-banner">
+            <span class="spinner" />
+            <span>{state.text}</span>
+            {state.model && <span class="gen-model">· {state.model}</span>}
+            <span style={{ flex: 1 }} />
+            <button class="btn-link" style={{ fontSize: 12 }} onClick={() => model.cancelGeneration()}>
+              {L('取消')}
+            </button>
+          </div>
+        )}
         {state.status === 'failed' && <ErrorCard message={state.message} retry={() => model.generate()} />}
         {model.stale.value && (
           <div class="banner">
@@ -242,6 +334,8 @@ export function SummaryPanel({ model }) {
         <ChapterCard model={model} s={s} />
       </div>
     );
+  } else if (state.status === 'generating') {
+    content = <Generating text={state.text} model={state.model} cancel={() => model.cancelGeneration()} />;
   } else if (state.status === 'failed') {
     content = (
       <div class="sum-scroll">
@@ -257,7 +351,7 @@ export function SummaryPanel({ model }) {
         </button>
       </Placeholder>
     );
-  } else if (!llmReady.value) {
+  } else if (!llmReady.value && !favorites.value.length) {
     content = (
       <div class="sum-scroll">
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, margin: '12px 0 20px', color: 'var(--text-3)' }}>
@@ -281,6 +375,10 @@ export function SummaryPanel({ model }) {
         <button class="btn-primary" onClick={() => model.generate()}>
           {L('生成智能纪要')}
         </button>
+        <div class="use-model">
+          <span>{L('使用模型')}</span>
+          <ModelPicker model={model} />
+        </div>
         <button class="btn-link" style={{ fontSize: 12 }} onClick={() => (settingsOpen.value = 'api')}>
           {L('API 设置')}
         </button>

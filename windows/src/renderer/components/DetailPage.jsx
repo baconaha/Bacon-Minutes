@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
-import { goBack, general, updateGeneral, requestMoveToTrash } from '../state.js';
+import { goBack, general, updateGeneral, requestMoveToTrash, copyingMedia, requestImportIntoApp } from '../state.js';
 import { createdDate, duration } from '../../core/time.js';
 import { L } from '../../core/i18n.js';
 import { Icon, Logo, Tag, Menu, Tab } from './ui.jsx';
@@ -15,7 +15,49 @@ export function exportMenuItems(model) {
     { label: L('导出 SRT'), icon: 'bubble', disabled: none, onClick: () => model.export('srt') },
     { label: L('导出 TXT（带时间戳与发言人）'), icon: 'doc', disabled: none, onClick: () => model.export('txt') },
     { label: L('导出 Markdown（纪要 + 文字记录）'), icon: 'docPlus', onClick: () => model.export('markdown') },
+    'sep',
+    { label: L('导出纪要文件（.{0}）', 'baconsummary'), icon: 'sparkle', disabled: !model.summary.value, onClick: () => model.exportSummaryFile() },
   ];
+}
+
+/** "应用内" or "链接": where the media lives. The link tag opens a menu with the path. */
+function StorageTag({ model }) {
+  const m = model.minute.value;
+  const p = copyingMedia.value.get(m.id);
+  if (p != null)
+    return (
+      <span class="storage-badge accent num">
+        <Icon name="download" size={11} />
+        {L('正在导入应用 {0}%', Math.round(p * 100))}
+      </span>
+    );
+  if (m.storage === 'imported')
+    return (
+      <span class="storage-badge accent" title={L('源文件已复制到应用内，原文件移动或删除都不影响播放。')}>
+        <Icon name="drive" size={11} />
+        {L('应用内')}
+      </span>
+    );
+  return (
+    <Menu
+      hover={false}
+      minWidth={280}
+      title={L('只链接了源文件的路径，点击查看')}
+      items={[
+        { label: m.mediaPath || m.mediaFileName, icon: 'doc', disabled: true },
+        'sep',
+        { label: L('在资源管理器中显示'), icon: 'folder', onClick: () => model.revealMedia() },
+        { label: L('将源文件导入应用…'), icon: 'drive', onClick: () => requestImportIntoApp(m.id) },
+      ]}
+      trigger={({ open, toggle }) => (
+        <button class={`storage-badge ${open ? 'open' : ''}`} onClick={toggle}>
+          <Icon name="link" size={11} />
+          {L('链接')}
+          <Icon name="chevronDown" size={9} />
+        </button>
+      )}
+    />
+  );
 }
 
 /**
@@ -92,6 +134,7 @@ function TopBar({ model }) {
       <div style={{ minWidth: 0, flex: '0 1 auto' }}>
         <div class="topbar-title">
           <EditableTitle model={model} />
+          <StorageTag model={model} />
           {model.tags.value.map((t) => (
             <Tag key={t.text} text={t.text} warn={t.warn} />
           ))}
@@ -120,8 +163,10 @@ function TopBar({ model }) {
         minWidth={190}
         items={[
           { label: L('重新导入 SRT…'), icon: 'bubble', onClick: () => model.chooseSRT() },
+          { label: L('导入纪要文件…'), icon: 'docPlus', onClick: () => model.chooseAndImportSummaryFile() },
           { label: L('更换媒体文件…'), icon: 'film', onClick: () => model.relocateMedia() },
           { label: L('在资源管理器中显示'), icon: 'folder', onClick: () => model.revealMedia() },
+          m.storage !== 'imported' && { label: L('将源文件导入应用…'), icon: 'drive', disabled: copyingMedia.value.has(m.id), onClick: () => requestImportIntoApp(m.id) },
           'sep',
           { label: L('移到回收站'), icon: 'trash', danger: true, onClick: () => requestMoveToTrash([m.id]) },
         ]}
@@ -171,6 +216,15 @@ export function DetailPage({ model }) {
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+
+  // Back from Explorer, where the file may have been moved back: look again, quietly.
+  useEffect(() => {
+    const onFocus = () => {
+      if (model.mediaState.value === 'missing') model.recheckMedia(true);
+    };
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [model]);
 
   // Re-render the transcript when comma insertion is toggled in settings.
   const comma = general.value.insertComma;

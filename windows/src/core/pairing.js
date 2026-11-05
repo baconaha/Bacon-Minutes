@@ -37,6 +37,13 @@ export function kindOf(p) {
   return 'other';
 }
 
+/** Video and subtitle formats the app cannot play or read; batch import lists them as skipped. */
+export const UNSUPPORTED_VIDEO_EXT = ['mkv', 'avi', 'wmv', 'flv', 'webm', 'ts', 'm2ts', 'mts', 'rmvb', 'rm', '3gp', 'mpg', 'mpeg', 'vob', 'ogv'];
+export const UNSUPPORTED_SUB_EXT = ['ass', 'ssa', 'vtt', 'sub', 'lrc'];
+export const SUMMARY_EXT = 'baconsummary';
+export const isUnsupported = (p) => UNSUPPORTED_VIDEO_EXT.includes(extOf(p)) || UNSUPPORTED_SUB_EXT.includes(extOf(p));
+export const isSummaryFile = (p) => extOf(p) === SUMMARY_EXT;
+
 export const isMedia = (p) => ['video', 'audio'].includes(kindOf(p));
 export const isSubtitle = (p) => kindOf(p) === 'subtitle';
 

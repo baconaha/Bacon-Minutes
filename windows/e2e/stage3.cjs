@@ -84,7 +84,7 @@ const theme = process.env.THEME || 'light';
   try {
     await page.click('.row:has-text("访谈录音")');
     await page.waitForTimeout(800);
-    check('missing media shows relocate prompt and tag', (await page.innerText('.player')).includes('找不到媒体文件') && (await page.innerText('.topbar')).includes('媒体缺失'));
+    check('missing media shows the old path, re-detect and relocate', (await page.innerText('.player')).includes('原路径已找不到文件') && (await page.innerText('.player')).includes('重新检测路径') && (await page.innerText('.topbar')).includes('媒体缺失'));
     check('transcript still usable with media missing', (await page.$$('.para')).length > 5);
     await page.screenshot({ path: `${OUT}/19-missing.png` });
   } finally {

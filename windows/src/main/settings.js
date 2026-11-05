@@ -38,6 +38,8 @@ export class SettingsStore {
       llm: { ...defaultLLMConfig(), ...(raw.llm || {}) },
       compat: raw.compat || {},
       keys: raw.keys || {},
+      /** Starred models (see makeFavorite in core/llm.js). */
+      favorites: Array.isArray(raw.favorites) ? raw.favorites : [],
     };
   }
 
@@ -58,6 +60,16 @@ export class SettingsStore {
     this.data.general = { ...this.data.general, ...patch };
     this.persist();
     return this.data.general;
+  }
+
+  get favorites() {
+    return this.data.favorites;
+  }
+
+  setFavorites(list) {
+    this.data.favorites = Array.isArray(list) ? list : [];
+    this.persist();
+    return this.data.favorites;
   }
 
   setLLM(config) {

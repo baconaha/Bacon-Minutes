@@ -164,6 +164,40 @@ const ICONS = {
   ),
   doc: <path {...S} d="M14 3.5H7a1.5 1.5 0 0 0-1.5 1.5v14A1.5 1.5 0 0 0 7 20.5h10a1.5 1.5 0 0 0 1.5-1.5V8zM14 3.5V8h4.5M9 12.5h6M9 16h6" />,
   skip: <path {...S} d="M5 6l8 6-8 6zM17 6v12" />,
+  star: <path {...S} d="M12 3.8l2.5 5.2 5.7.8-4.1 4 1 5.7L12 16.8l-5.1 2.7 1-5.7-4.1-4 5.7-.8z" />,
+  starFill: <path {...F} d="M12 3.8l2.5 5.2 5.7.8-4.1 4 1 5.7L12 16.8l-5.1 2.7 1-5.7-4.1-4 5.7-.8z" />,
+  link: <path {...S} d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1" />,
+  drive: (
+    <g {...S}>
+      <rect x="3.5" y="13" width="17" height="6.5" rx="1.5" />
+      <path d="M5 13l2.5-7.5h9L19 13M16.5 16.3h.01M13.5 16.3h.01" />
+    </g>
+  ),
+  driveWarn: (
+    <g {...S}>
+      <rect x="3.5" y="13" width="17" height="6.5" rx="1.5" />
+      <path d="M5 13l2.5-7.5h3.5M16.5 16.3h.01M17 4v4.5M17 11h.01" />
+    </g>
+  ),
+  cpu: (
+    <g {...S}>
+      <rect x="6.5" y="6.5" width="11" height="11" rx="1.5" />
+      <path d="M9.5 3.5v3M14.5 3.5v3M9.5 17.5v3M14.5 17.5v3M3.5 9.5h3M3.5 14.5h3M17.5 9.5h3M17.5 14.5h3" />
+    </g>
+  ),
+  arrowRight: <path {...S} d="M5 12h14M13 6l6 6-6 6" />,
+  ban: (
+    <g {...S}>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M6 6l12 12" />
+    </g>
+  ),
+  importBox: (
+    <g {...S}>
+      <path d="M8 8.5H6a1.5 1.5 0 0 0-1.5 1.5v8.5A1.5 1.5 0 0 0 6 20h12a1.5 1.5 0 0 0 1.5-1.5V10A1.5 1.5 0 0 0 18 8.5h-2" />
+      <path d="M12 3.5v10M8.5 10.5L12 14l3.5-3.5" />
+    </g>
+  ),
 };
 
 export function Icon({ name, size = 16, class: cls = '', style }) {
@@ -407,7 +441,7 @@ export function Menu({ trigger, items, align = 'left', up = false, title, hover 
               ) : (
                 <button
                   key={i}
-                  class={`menu-item ${it.selected ? 'selected' : ''} ${it.danger ? 'danger' : ''}`}
+                  class={`menu-item ${it.selected ? 'selected' : ''} ${it.danger ? 'danger' : ''} ${it.star ? 'has-star' : ''}`}
                   disabled={it.disabled}
                   onClick={(e) => {
                     e.stopPropagation();
@@ -417,7 +451,9 @@ export function Menu({ trigger, items, align = 'left', up = false, title, hover 
                 >
                   {it.icon && <Icon name={it.icon} size={16} class="mi-icon" />}
                   <span class="mi-label">{it.label}</span>
+                  {it.detail && <span class="mi-detail">{it.detail}</span>}
                   {it.selected && <Icon name="check" size={13} class="mi-check" />}
+                  {it.star && <MenuStar star={it.star} />}
                 </button>
               ),
             )}
@@ -425,6 +461,34 @@ export function Menu({ trigger, items, align = 'left', up = false, title, hover 
           document.body,
         )}
     </span>
+  );
+}
+
+/** Star toggle inside a menu row (favorite models); it does not close the menu. */
+function MenuStar({ star }) {
+  const [on, setOn] = useState(!!star.on);
+  return (
+    <span
+      class={`mi-star ${on ? 'on' : ''}`}
+      role="button"
+      title={on ? L('取消收藏') : L('收藏模型')}
+      onClick={(e) => {
+        e.stopPropagation();
+        setOn(!on);
+        star.onToggle();
+      }}
+    >
+      <Icon name={on ? 'starFill' : 'star'} size={15} />
+    </span>
+  );
+}
+
+/** Star outline that turns yellow when on. */
+export function StarButton({ on, onClick, size = 15, disabled }) {
+  return (
+    <button class={`star-btn ${on ? 'on' : ''}`} disabled={disabled} title={on ? L('取消收藏') : L('收藏模型')} onClick={(e) => (e.stopPropagation(), onClick())}>
+      <Icon name={on ? 'starFill' : 'star'} size={size} />
+    </button>
   );
 }
 
@@ -511,10 +575,14 @@ export function useContextMenu() {
   return [open, node];
 }
 
+/** True while a dropdown or context menu is open; Esc then closes only that menu. */
+export const menuIsOpen = () => !!document.querySelector('.menu');
+
 export function Modal({ children, onClose, class: cls = '', width }) {
   useEffect(() => {
     const esc = (e) => {
       if (e.key === 'Escape') {
+        if (menuIsOpen()) return;
         e.stopPropagation();
         onClose?.();
       }

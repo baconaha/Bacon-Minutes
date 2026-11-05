@@ -29,6 +29,12 @@ fs.mkdirSync(OUT, { recursive: true });
   const media = path.join(WORK, 'media');
   const t0 = Date.now();
   await page.evaluate((p) => window.__lm.importPaths([p]), media);
+  // The review dialog lists both pairs; link them (copying is covered by round7.cjs).
+  await page.waitForSelector('.review-row', { timeout: 10000 });
+  await page.waitForFunction(() => window.__lm.state.importReview.value?.rows.value.every((r) => r.inspected), null, { timeout: 30000 });
+  await page.click('.review-storage .rs-check');
+  await page.click('.review-foot .btn-primary');
+  await page.waitForFunction(() => document.querySelectorAll('.row').length === 2, null, { timeout: 30000 });
   console.log('import took', Date.now() - t0, 'ms');
   await page.waitForTimeout(800);
   const rows = await page.$$eval('.row', (els) => els.map((e) => e.innerText.replace(/\n+/g, ' | ')));

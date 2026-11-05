@@ -1,9 +1,12 @@
 import { useState } from 'preact/hooks';
-import { settingsOpen, general, llm, apiKey, updateGeneral, updateLLM, choosePreset, updateApiKey, call, setUILanguage, systemLanguage, customIcon } from '../state.js';
-import { PRESETS, PROTOCOLS, OUTPUT_LANGUAGES, isLocalPreset, presetName, outputLanguageName } from '../../core/llm.js';
+import {
+  settingsOpen, general, llm, apiKey, updateGeneral, updateLLM, choosePreset, updateApiKey, call, setUILanguage, systemLanguage, customIcon,
+  favorites, isFavorite, toggleFavorite, removeFavorite, useFavoriteAsDefault,
+} from '../state.js';
+import { PRESETS, PROTOCOLS, OUTPUT_LANGUAGES, isLocalPreset, presetName, outputLanguageName, favoriteKey, favoriteID, preset } from '../../core/llm.js';
 import { DEFAULT_SUFFIXES } from '../../core/pairing.js';
 import { L, LANGUAGES, languageName } from '../../core/i18n.js';
-import { Icon, Logo, Menu, Modal, SelectField, Tab } from './ui.jsx';
+import { Icon, Logo, Menu, Modal, SelectField, Tab, StarButton, Tag } from './ui.jsx';
 
 function Seg({ options, value, onChange }) {
   return (
@@ -121,13 +124,19 @@ export function APIForm({ embedded = false }) {
               placeholder={c.protocol === 'azure' ? L('Azure 部署名称') : L('模型名称')}
               onInput={(e) => set({ model: e.currentTarget.value })}
             />
+            <StarButton on={isFavorite(favoriteKey(c.presetID, c.baseURL, c.model))} disabled={!c.model.trim()} onClick={() => toggleFavorite(c.model)} />
             {models.length > 0 && (
               <Menu
                 hover={false}
                 align="right"
-                minWidth={240}
+                minWidth={260}
                 title={L('从列表中选择')}
-                items={models.map((m) => ({ label: m, selected: m === c.model, onClick: () => set({ model: m }) }))}
+                items={models.map((m) => ({
+                  label: m,
+                  selected: m === c.model,
+                  onClick: () => set({ model: m }),
+                  star: { on: isFavorite(favoriteKey(c.presetID, c.baseURL, m)), onToggle: () => toggleFavorite(m) },
+                }))}
                 trigger={({ open, toggle }) => (
                   <button class={`btn-icon chevron-btn ${open ? 'active-bg' : ''}`} onClick={toggle}>
                     <Icon name="chevronDown" size={13} />
@@ -150,6 +159,8 @@ export function APIForm({ embedded = false }) {
           trigger={({ open, toggle }) => <SelectField width={220} text={outputLanguageName(c.outputLanguage)} open={open} onClick={toggle} />}
         />
       </div>
+
+      {!embedded && <FavoriteModels />}
 
       <button class="btn-link" style={{ margin: '14px 0 0 122px', display: 'inline-flex', alignItems: 'center', gap: 4 }} onClick={() => setAdvanced(!advanced)}>
         {L('高级')}
@@ -244,6 +255,47 @@ export function APIForm({ embedded = false }) {
           </span>
         )}
       </div>
+    </div>
+  );
+}
+
+/** Starred models, from any provider. Each can be picked in a minute's summary tab. */
+function FavoriteModels() {
+  const list = favorites.value;
+  const current = favoriteKey(llm.value.presetID, llm.value.baseURL, llm.value.model);
+  return (
+    <div class="favorites">
+      <div class="fav-head">
+        <Icon name="starFill" size={13} class="star-on" />
+        <span>{L('收藏的模型')}</span>
+        {list.length > 0 && <span class="num fav-count">{list.length}</span>}
+      </div>
+      {list.length === 0 ? (
+        <div class="fav-empty">{L('在模型列表里点 ☆ 收藏常用模型。生成纪要时，可以在每个妙记的纪要页直接切换收藏的模型。')}</div>
+      ) : (
+        <div class="fav-list">
+          {list.map((f) => {
+            const id = favoriteID(f);
+            const p = preset(f.presetID);
+            return (
+              <div class="fav-row" key={id}>
+                <StarButton on onClick={() => removeFavorite(id)} />
+                <div class="fav-text">
+                  <div class="fav-model">{f.model}</div>
+                  <div class="fav-provider">{p ? presetName(p) : L('自定义')}</div>
+                </div>
+                {id === current ? (
+                  <Tag text={L('默认')} />
+                ) : (
+                  <button class="btn-link fav-use" onClick={() => useFavoriteAsDefault(f)}>
+                    {L('设为默认')}
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

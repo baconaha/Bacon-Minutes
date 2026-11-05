@@ -28,7 +28,7 @@ http.createServer((req, res) => {
     calls.push({ url: req.url, hasRF: !!json.response_format });
     res.setHeader('content-type', 'application/json');
     if (req.url === '/calls') return res.end(JSON.stringify(calls));
-    if (req.url.endsWith('/models')) return res.end(JSON.stringify({ data: [{ id: 'mock-large' }, { id: 'mock-small' }] }));
+    if (req.url.endsWith('/models')) return res.end(JSON.stringify({ data: [{ id: 'mock-large' }, { id: 'mock-small' }, { id: 'mock-slow' }] }));
     if (json.response_format) {
       res.statusCode = 400;
       return res.end(JSON.stringify({ error: { message: "Unsupported parameter: 'response_format'" } }));
@@ -36,6 +36,6 @@ http.createServer((req, res) => {
     const isTest = (json.messages || []).some((m) => m.content === 'Reply with OK.');
     setTimeout(() => {
       res.end(JSON.stringify({ choices: [{ message: { content: isTest ? 'OK' : '<think>先想一想</think>' + JSON.stringify(summary) }, finish_reason: 'stop' }] }));
-    }, isTest ? 50 : 1500);
+    }, isTest ? 50 : json.model === 'mock-slow' ? 4000 : 1500);
   });
 }).listen(18765, '127.0.0.1', () => console.log('mock llm on 18765'));

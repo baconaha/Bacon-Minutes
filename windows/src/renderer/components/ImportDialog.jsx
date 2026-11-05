@@ -3,7 +3,7 @@ import { importDialog, call, currentFolderID, folderByID } from '../state.js';
 import { L } from '../../core/i18n.js';
 import { importPaths, runImport, pathsFromDrop } from '../importer.js';
 import { isMedia, isSubtitle, baseName } from '../../core/pairing.js';
-import { Icon, Modal } from './ui.jsx';
+import { Icon, Modal, Checkbox } from './ui.jsx';
 
 function Slot({ title, path, placeholder, onChange }) {
   return (
@@ -56,8 +56,9 @@ export function ImportDialog() {
   const submit = () => {
     if (!draft.media) return;
     const pair = { media: draft.media, subtitle: draft.subtitle || null };
+    const storage = draft.linkOnly ? 'linked' : 'imported';
     close();
-    runImport([pair]);
+    runImport([pair], { storage });
   };
 
   return (
@@ -126,6 +127,17 @@ export function ImportDialog() {
             if (p) set({ subtitle: p });
           }}
         />
+      </div>
+      <div class="import-link-option">
+        <label class="rs-check" onClick={(e) => (e.preventDefault(), set({ linkOnly: !draft.linkOnly }))}>
+          <Checkbox checked={!!draft.linkOnly} onChange={(v) => set({ linkOnly: v })} />
+          <span>{L('只链接文件路径（不复制到应用）')}</span>
+        </label>
+        <div class={draft.linkOnly ? 'rs-warn' : 'rs-hint'}>
+          {draft.linkOnly
+            ? L('链接后，源文件被移动、改名，或所在的磁盘、NAS 断开时，需要在妙记里「重新检测路径」或重新导入。')
+            : L('默认把源文件复制一份保存到应用内，之后原文件移动、改名或删除，都不影响播放。')}
+        </div>
       </div>
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 12, marginTop: 20 }}>
         <button class="btn-secondary" onClick={close}>

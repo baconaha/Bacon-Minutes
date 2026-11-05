@@ -24,7 +24,7 @@ trap 'kill $MOCK_PID 2>/dev/null || true' EXIT
 sleep 1
 
 # Electron refuses to start as root without --no-sandbox; the scripts pass it.
-run() { xvfb-run -a -s "-screen 0 1280x820x24" node "$1" 2>&1 | grep -E "^(PASS|FAIL|rows|toast|detail|import took|errors|console errors|FAILED)" || true; }
+run() { xvfb-run -a -s "-screen 0 1280x820x24" node "$1" 2>&1 | grep -E "^(PASS|FAIL|rows|toast|detail|import took|errors|console errors|FAILED)|passed$" || true; }
 run smoke.cjs
 run interact.cjs
 run stage3.cjs
@@ -35,4 +35,9 @@ node mock-llm.cjs > "$WORK/mock.log" 2>&1 &
 MOCK_PID=$!
 sleep 1
 run parity.cjs
-echo "screenshots in $(pwd)/$WORK/shots and $(pwd)/$WORK/parity"
+kill $MOCK_PID 2>/dev/null || true
+node mock-llm.cjs > "$WORK/mock.log" 2>&1 &
+MOCK_PID=$!
+sleep 1
+run round7.cjs
+echo "screenshots in $(pwd)/$WORK/shots, $(pwd)/$WORK/parity and $(pwd)/$WORK/round7"

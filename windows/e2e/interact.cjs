@@ -251,7 +251,7 @@ const check = (name, ok, detail = '') => { results.push(`${ok ? 'PASS' : 'FAIL'}
   check('test connection succeeds', (await page.innerText('.settings')).includes('连接成功'));
   await page.click('button:has-text("获取模型列表")');
   await page.waitForTimeout(800);
-  check('model list fetched', (await page.innerText('.settings')).includes('获取到 2 个模型'));
+  check('model list fetched', (await page.innerText('.settings')).includes('获取到 3 个模型'));
   await page.screenshot({ path: `${OUT}/17-settings.png` });
   await page.keyboard.press('Escape');
 

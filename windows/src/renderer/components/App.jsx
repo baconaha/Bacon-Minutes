@@ -3,10 +3,10 @@ import {
   route, detail, toast, importDialog, settingsOpen, renameTarget, minutes, selection, section,
   loadLibrary, loadSettings, goBack, requestMoveToTrash, renameMinute, listSearchFocus, call, lm,
   isDialogOpen, confirmRequest, moveTarget, folderInfoTarget, currentFolderID, folderByID,
-  folderSelection, requestDeleteFolders,
+  folderSelection, requestDeleteFolders, importReview,
 } from '../state.js';
 import { L } from '../../core/i18n.js';
-import { ConfirmDialog, MoveToFolderDialog, FolderInfoDialog } from './Dialogs.jsx';
+import { ConfirmDialog, MoveToFolderDialog, FolderInfoDialog, ImportReviewDialog, dialogKey } from './Dialogs.jsx';
 import { importPaths, importFolder, pathsFromDrop } from '../importer.js';
 import { ListPage } from './ListPage.jsx';
 import { DetailPage } from './DetailPage.jsx';
@@ -119,7 +119,7 @@ function useTitleBarColor() {
 }
 
 function dropText(isDetail) {
-  if (isDetail) return L('松开以导入（SRT 将导入到当前妙记）');
+  if (isDetail) return L('松开以导入（SRT 或纪要文件将导入到当前妙记）');
   const f = folderByID(currentFolderID.value);
   return f ? L('松开以导入到「{0}」', f.name) : L('松开以导入');
 }
@@ -170,7 +170,8 @@ export function App() {
       )}
       {importDialog.value && <ImportDialog />}
       {settingsOpen.value && <SettingsModal />}
-      {confirmRequest.value && <ConfirmDialog key={confirmRequest.value.title} />}
+      {importReview.value && <ImportReviewDialog key={importReview.value.id} />}
+      {confirmRequest.value && <ConfirmDialog key={dialogKey(confirmRequest.value)} />}
       {moveTarget.value && <MoveToFolderDialog />}
       {folderInfoTarget.value && <FolderInfoDialog key={folderInfoTarget.value} />}
       {target && (
