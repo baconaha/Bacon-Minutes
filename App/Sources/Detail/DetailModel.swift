@@ -3,7 +3,12 @@ import Foundation
 import Observation
 import SwiftUI
 
-enum RightTab { case summary, transcript }
+enum RightTab {
+    case summary, transcript
+
+    /// Stored in `Minute.lastTab`.
+    var key: String { self == .summary ? "summary" : "transcript" }
+}
 enum LeftTab { case speakers, fileInfo }
 enum MediaState {
     case loading, ready
@@ -110,7 +115,8 @@ final class DetailModel {
         }
         rebuildDerived()
         isLoaded = true
-        rightTab = .transcript
+        // Back on the tab this minute was left on.
+        rightTab = minute.lastTab == RightTab.summary.key ? .summary : .transcript
     }
 
     /// Media, playback and the transcript layout; called once the page transition has finished.
@@ -129,7 +135,7 @@ final class DetailModel {
 
     func close() {
         closed = true
-        persistPosition()
+        persistState()
         autosaveTask?.cancel()
         // Summary generation is not cancelled: it belongs to the app and finishes in the background.
         searchTask?.cancel()
@@ -137,6 +143,15 @@ final class DetailModel {
         player.teardown()
         mediaAccess?.stop()
         mediaAccess = nil
+    }
+
+    /// Playback position and the open tab, for the next time this minute opens.
+    func persistState() {
+        if minute.lastTab != rightTab.key {
+            minute.lastTab = rightTab.key
+            library.save(minute)
+        }
+        persistPosition()
     }
 
     func persistPosition() {
@@ -592,6 +607,7 @@ final class DetailModel {
     var summaryState: SummaryState {
         if let job = app.summaryJob(minute.id) {
             switch job.phase {
+            case .queued: return .generating(L("排队中，前面的纪要生成完就开始…"))
             case .running(let text): return .generating(text)
             case .failed(let message): return .failed(message)
             }

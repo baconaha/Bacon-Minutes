@@ -403,3 +403,17 @@
 "收藏的模型" = "Mô hình yêu thích";
 "在模型列表里点 ☆ 收藏常用模型。生成纪要时，可以在每个妙记的纪要页直接切换收藏的模型。" = "Gắn ☆ cho các mô hình thường dùng trong danh sách. Khi tạo tóm tắt, bạn có thể chuyển giữa chúng ngay trong thẻ tóm tắt của từng bản ghi.";
 "设为默认" = "Đặt làm mặc định";
+"前往设置" = "Mở Cài đặt";
+"在设置中填写服务商、API Key 和模型，或收藏一个模型" = "Nhập nhà cung cấp, API Key và mô hình trong Cài đặt, hoặc đánh dấu yêu thích một mô hình";
+"生成纪要" = "Tạo tóm tắt";
+"为 {0} 个妙记生成智能纪要" = "Tạo tóm tắt AI cho {0} bản ghi";
+"在后台逐个生成，同时最多 {0} 个。期间可以照常使用，关闭窗口也会继续。" = "Tạo lần lượt ở chế độ nền, tối đa {0} bản cùng lúc. Bạn vẫn dùng bình thường được, đóng cửa sổ cũng không dừng lại.";
+"其中 {0} 个还没有字幕，会跳过" = "{0} bản ghi chưa có phụ đề, sẽ bị bỏ qua";
+"其中 {0} 个已经在生成或排队，会跳过" = "{0} bản ghi đang được tạo hoặc đang chờ, sẽ bị bỏ qua";
+"已有纪要的 {0} 个也再生成一份（原有版本会保留）" = "Tạo thêm cho {0} bản ghi đã có tóm tắt (giữ lại các phiên bản cũ)";
+"还没有设置模型。" = "Chưa thiết lập mô hình.";
+"开始生成" = "Bắt đầu tạo";
+"生成 {0} 个" = "Tạo {0} bản";
+"已开始为 {0} 个妙记生成纪要" = "Đã bắt đầu tạo tóm tắt cho {0} bản ghi";
+"纪要排队中" = "Đang chờ tóm tắt";
+"排队中，前面的纪要生成完就开始…" = "Đang chờ — sẽ bắt đầu khi các bản tóm tắt trước xong…";

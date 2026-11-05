@@ -133,16 +133,22 @@ final class AppModel {
     /// Summary generation per minute; it keeps running when the detail page closes.
     var summaryJobs: [UUID: SummaryJob] = [:]
     @ObservationIgnored var summaryTasks: [UUID: Task<Void, Never>] = [:]
+    /// Batch summaries waiting for a free slot.
+    @ObservationIgnored var summaryQueue: [QueuedSummary] = []
+    /// Minutes picked for "生成纪要" from the list selection.
+    var batchSummaryTarget: [UUID]?
     @ObservationIgnored private var importChain: Task<Void, Never>?
 
     var isDialogOpen: Bool {
-        confirmRequest != nil || moveTarget != nil || folderInfoTarget != nil || importReview != nil
+        confirmRequest != nil || moveTarget != nil || folderInfoTarget != nil || importReview != nil || batchSummaryTarget != nil
     }
 
     @ObservationIgnored weak var mainWindow: NSWindow?
     /// Traffic-light buttons are hidden in full screen, so top bars can start at the left edge.
     var isWindowFullScreen = false
     @ObservationIgnored private var fullScreenObservers: [NSObjectProtocol] = []
+    @ObservationIgnored private var closeInterceptor: WindowCloseInterceptor?
+    @ObservationIgnored private var hideAfterFullScreen = false
     @ObservationIgnored private var toastTask: Task<Void, Never>?
     private let keyMonitor: KeyMonitor
     @ObservationIgnored private var terminateObserver: NSObjectProtocol?
@@ -156,7 +162,7 @@ final class AppModel {
         terminateObserver = NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification,
                                                                    object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated {
-                self?.detail?.persistPosition()
+                self?.detail?.persistState()
             }
         }
         Task { await library.load() }
@@ -165,7 +171,15 @@ final class AppModel {
     func attachWindow(_ window: NSWindow?) {
         guard let window, window !== mainWindow else { return }
         mainWindow = window
+        MainWindowRegistry.window = window
         isWindowFullScreen = window.styleMask.contains(.fullScreen)
+        // The close button (and ⌘W) only hides the window; the app keeps running, with any
+        // summaries still generating, until ⌘Q. Clicking the Dock icon brings it back.
+        let interceptor = WindowCloseInterceptor(original: window.delegate) { [weak self] w in
+            MainActor.assumeIsolated { self?.hideMainWindow(w) }
+        }
+        closeInterceptor = interceptor
+        window.delegate = interceptor
         for o in fullScreenObservers { NotificationCenter.default.removeObserver(o) }
         let center = NotificationCenter.default
         fullScreenObservers = [
@@ -175,7 +189,30 @@ final class AppModel {
             center.addObserver(forName: NSWindow.willExitFullScreenNotification, object: window, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated { self?.isWindowFullScreen = false }
             },
+            center.addObserver(forName: NSWindow.didExitFullScreenNotification, object: window, queue: .main) { [weak self] note in
+                MainActor.assumeIsolated {
+                    guard let self, self.hideAfterFullScreen else { return }
+                    self.hideAfterFullScreen = false
+                    (note.object as? NSWindow)?.orderOut(nil)
+                }
+            },
         ]
+    }
+
+    /// Close button: pause playback, keep everything else, and hide the window.
+    func hideMainWindow(_ window: NSWindow) {
+        if let d = detail {
+            d.player.pause()
+            d.persistState()
+        }
+        MainWindowRegistry.hidden = true
+        if window.styleMask.contains(.fullScreen) {
+            // Hiding a full-screen window leaves an empty Space behind; leave full screen first.
+            hideAfterFullScreen = true
+            window.toggleFullScreen(nil)
+            return
+        }
+        window.orderOut(nil)
     }
 
     // MARK: Navigation
@@ -188,14 +225,14 @@ final class AppModel {
         let d = DetailModel(minute: m, app: self)
         d.prepare()
         selection = []
-        withAnimation(.easeOut(duration: 0.22)) {
+        withAnimation(.easeOut(duration: 0.16)) {
             detail = d
             route = .detail(id)
         }
-        // Media and the transcript's text layout start once the page has settled, so the
-        // transition itself never stalls.
+        // Media and the transcript text start once the page has settled, so the fade itself
+        // never stalls.
         Task {
-            try? await Task.sleep(nanoseconds: 240_000_000)
+            try? await Task.sleep(nanoseconds: 200_000_000)
             d.start()
         }
     }
@@ -204,7 +241,7 @@ final class AppModel {
         guard let d = detail else { return }
         if d.isVideoFullscreen { d.setFullscreen(false) }
         d.close()
-        withAnimation(.easeOut(duration: 0.18)) {
+        withAnimation(.easeOut(duration: 0.16)) {
             detail = nil
             route = .list
         }

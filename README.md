@@ -12,7 +12,7 @@ Media lookup never runs on the main thread: bookmark resolution and file checks 
 
 ## Summaries
 
-Generation belongs to the app, not to the page, so it keeps going after you go back to the list (the row shows 纪要生成中, and a toast says when it is done). Every generation is kept as a version in `summaries.json`, with a switcher in the summary tab. Models starred in Settings (☆ in the fetched model list or next to the model field) can be picked per minute; each runs on its own provider endpoint and key.
+Generation belongs to the app, not to the page, so it keeps going after you go back to the list (the row shows 纪要生成中, and a toast says when it is done). Selecting several minutes in the list offers 生成纪要: pick a model once and they are queued, two at a time. A minute reopens on the tab it was left on. Every generation is kept as a version in `summaries.json`, with a switcher in the summary tab. Models starred in Settings (☆ in the fetched model list or next to the model field) can be picked per minute; each runs on its own provider endpoint and key.
 
 A summary can be exported as a `.baconsummary` file: JSON with the summary, the model and request parameters, and the source recording (file name, size, duration, SRT name, cue count and a hash of the cue text and timing). Dragging the file onto a minute imports it as another version; when the subtitles, media file or duration differ, the app lists the differences and asks first. Dropped on the list, the file finds its own minute by the subtitle hash. The Windows app reads and writes the same format.
 
@@ -55,6 +55,10 @@ python3 tools/check_l10n.py
 ```
 
 It fails when a key is missing from a language or a translation drops a `{0}` placeholder. CI runs it too.
+
+## Closing the window
+
+The red close button (and ⌘W) hides the window and pauses playback; the app keeps running, including summaries that are still generating. Click the Dock icon to bring the window back, and use ⌘Q to quit.
 
 ## Upgrading from LocalMinutes
 

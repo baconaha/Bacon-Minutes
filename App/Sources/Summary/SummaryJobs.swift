@@ -4,6 +4,8 @@ import Foundation
 /// so a summary keeps generating after the user goes back to the list.
 struct SummaryJob: Equatable {
     enum Phase: Equatable {
+        /// Waiting in the batch queue.
+        case queued
         case running(String)
         case failed(String)
     }
@@ -16,12 +18,81 @@ struct SummaryJob: Equatable {
         if case .running = phase { return true }
         return false
     }
+
+    var isQueued: Bool { phase == .queued }
+
+    /// Running or waiting its turn.
+    var isActive: Bool { isRunning || isQueued }
+}
+
+/// One minute waiting in the batch queue, with the model picked for the batch.
+struct QueuedSummary {
+    var minuteID: UUID
+    var favorite: FavoriteModel?
 }
 
 extension AppModel {
     func summaryJob(_ id: UUID) -> SummaryJob? { summaryJobs[id] }
 
     func isGeneratingSummary(_ id: UUID) -> Bool { summaryJobs[id]?.isRunning ?? false }
+
+    func isSummaryQueued(_ id: UUID) -> Bool { summaryJobs[id]?.isQueued ?? false }
+
+    // MARK: Batch
+
+    /// At most this many batch summaries run at once, to stay within providers' rate limits.
+    static let batchConcurrency = 2
+
+    /// Queues summaries for several minutes; they run in the background a couple at a time.
+    /// Returns how many were queued.
+    @discardableResult
+    func queueSummaries(_ ids: [UUID], favorite: FavoriteModel?, includeExisting: Bool) -> Int {
+        let modelName = favorite?.model ?? settings.llm.model
+        var count = 0
+        for id in ids {
+            guard let m = library.minute(id), m.deletedAt == nil, m.hasTranscript else { continue }
+            if m.hasSummary && !includeExisting { continue }
+            if summaryJobs[id]?.isActive == true { continue }
+            summaryJobs[id] = SummaryJob(phase: .queued, modelName: modelName)
+            summaryQueue.append(QueuedSummary(minuteID: id, favorite: favorite))
+            count += 1
+        }
+        pumpSummaryQueue()
+        return count
+    }
+
+    /// Starts queued summaries while fewer than `batchConcurrency` are running.
+    func pumpSummaryQueue() {
+        while summaryJobs.values.filter(\.isRunning).count < Self.batchConcurrency, !summaryQueue.isEmpty {
+            let next = summaryQueue.removeFirst()
+            guard summaryJobs[next.minuteID]?.isQueued == true else { continue }
+            launchQueued(next)
+        }
+    }
+
+    private func launchQueued(_ q: QueuedSummary) {
+        let id = q.minuteID
+        guard let m = library.minute(id), m.deletedAt == nil, let tr = library.loadTranscript(id) else {
+            summaryJobs[id] = nil
+            return
+        }
+        var config = settings.llm
+        var apiKey = settings.apiKey
+        if let fav = q.favorite {
+            config = fav.applied(to: config)
+            apiKey = settings.apiKey(forPreset: fav.presetID)
+        }
+        guard config.isConfigured else {
+            summaryJobs[id] = SummaryJob(phase: .failed(L("请先在 API 设置中填写 Base URL 与模型")), modelName: config.model)
+            return
+        }
+        // Same input as the detail page builds (§8): paragraphs with the current settings.
+        let paragraphs = ParagraphBuilder.build(cues: tr.cues)
+        let input = SummaryInput.make(title: m.title, duration: m.duration, transcript: tr, paragraphs: paragraphs,
+                                      insertComma: settings.general.insertComma, language: config.outputLanguage)
+        startSummary(minuteID: id, input: input, config: config, apiKey: apiKey,
+                     transcriptHash: tr.contentHash, cuesHash: tr.cuesHash)
+    }
 
     /// Starts (or restarts) generation for one minute.
     func startSummary(minuteID: UUID, input: SummaryInput, config: LLMConfig, apiKey: String,
@@ -48,11 +119,13 @@ extension AppModel {
         summaryTasks[id]?.cancel()
         summaryTasks[id] = nil
         summaryJobs[id] = nil
+        summaryQueue.removeAll { $0.minuteID == id }
+        pumpSummaryQueue()
     }
 
     /// Forgets a failed job (e.g. before retrying or once the error was seen).
     func clearSummaryFailure(_ id: UUID) {
-        if let job = summaryJobs[id], !job.isRunning { summaryJobs[id] = nil }
+        if let job = summaryJobs[id], case .failed = job.phase { summaryJobs[id] = nil }
     }
 
     private func updateSummaryProgress(_ id: UUID, _ p: SummaryProgress) {
@@ -74,10 +147,12 @@ extension AppModel {
         if detail?.minute.id != id, let m = library.minute(id) {
             showToast(L("「{0}」的智能纪要已生成", m.title))
         }
+        pumpSummaryQueue()
     }
 
     private func failSummary(_ id: UUID, _ error: Error) {
         summaryTasks[id] = nil
+        defer { pumpSummaryQueue() }
         if let e = error as? LLMError, e == .cancelled {
             summaryJobs[id] = nil
             return

@@ -22,6 +22,8 @@ struct MinuteRow: View {
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
                         if app.isGeneratingSummary(minute.id) && !isTrash {
                             GeneratingTag()
+                        } else if app.isSummaryQueued(minute.id) && !isTrash {
+                            TagLabel(text: L("纪要排队中"))
                         } else if minute.hasSummary && !isTrash {
                             TagLabel(text: L("纪要"))
                         }

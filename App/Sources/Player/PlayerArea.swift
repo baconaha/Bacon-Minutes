@@ -156,8 +156,9 @@ final class PlayerLayerView: NSView {
         wantsLayer = true
         layer?.backgroundColor = NSColor.black.cgColor
         playerLayer.videoGravity = .resizeAspect
-        // Hidden until a frame can be drawn, then faded in, so opening a minute shows black and
-        // then the picture rather than a flash or a spinner.
+        // Hidden until a frame can be drawn, so opening a minute shows black and then the
+        // picture. Shown in one step: animating the opacity of an HDR video layer made macOS
+        // switch the whole display in and out of HDR mode, which flashed the screen.
         playerLayer.opacity = 0
         layer?.addSublayer(playerLayer)
         readyObservation = playerLayer.observe(\.isReadyForDisplay, options: [.initial, .new]) { [weak self] layer, _ in
@@ -172,8 +173,7 @@ final class PlayerLayerView: NSView {
         let target: Float = ready ? 1 : 0
         guard playerLayer.opacity != target else { return }
         CATransaction.begin()
-        CATransaction.setAnimationDuration(ready ? 0.3 : 0)
-        CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut))
+        CATransaction.setDisableActions(true)
         playerLayer.opacity = target
         CATransaction.commit()
     }

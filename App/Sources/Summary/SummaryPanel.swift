@@ -29,8 +29,8 @@ struct SummaryPanel: View {
             ScrollView {
                 VStack(spacing: 16) {
                     ErrorCard(message: message) { model.generateSummary() }
-                    if !model.settings.isLLMReady {
-                        APISettingsForm(settings: model.settings, embedded: true)
+                    if !model.settings.isLLMReady && model.settings.favorites.isEmpty {
+                        OpenSettingsButton()
                     }
                 }
                 .padding(20)
@@ -42,17 +42,11 @@ struct SummaryPanel: View {
                     .buttonStyle(PrimaryButtonStyle())
             }
         } else if !model.settings.isLLMReady && model.settings.favorites.isEmpty {
-            ScrollView {
-                VStack(spacing: 18) {
-                    SummaryPlaceholder(icon: "sparkles", title: L("配置 API 后即可生成智能纪要"),
-                                       message: L("支持 OpenAI 兼容、Anthropic、Azure OpenAI 以及本地模型服务")) { EmptyView() }
-                        .frame(height: 220)
-                    APISettingsForm(settings: model.settings, embedded: true)
-                    Button(L("保存并生成")) { model.generateSummary() }
-                        .buttonStyle(PrimaryButtonStyle())
-                        .disabled(!model.settings.isLLMReady)
-                }
-                .padding(20)
+            // The API form used to sit here; it is only in Settings now.
+            SummaryPlaceholder(icon: "sparkles", title: L("配置 API 后即可生成智能纪要"),
+                               message: L("在设置中填写服务商、API Key 和模型，或收藏一个模型")) {
+                OpenSettingsButton()
+                    .padding(.top, 4)
             }
         } else {
             SummaryPlaceholder(icon: "sparkles", title: L("让 AI 帮你整理这段内容"),
@@ -78,12 +72,45 @@ struct SummaryModelPicker: View {
     @Bindable var model: DetailModel
 
     var body: some View {
+        ModelChoiceButton(settings: model.settings, selection: $model.chosenModelID)
+    }
+}
+
+/// Opens the Settings window (on its 智能纪要 tab, the first one).
+struct OpenSettingsButton: View {
+    var body: some View {
+        SettingsLink {
+            HStack(spacing: 6) {
+                Image(systemName: "gearshape").font(.system(size: 12, weight: .semibold))
+                Text(L("前往设置"))
+            }
+        }
+        .buttonStyle(PrimaryButtonStyle())
+    }
+}
+
+/// Default model from Settings (`selection` nil) or a starred one (its id).
+struct ModelChoiceButton: View {
+    @Bindable var settings: AppSettings
+    @Binding var selection: String?
+
+    private var favorite: FavoriteModel? {
+        guard let id = selection else { return nil }
+        return settings.favorites.first { $0.id == id }
+    }
+
+    private var name: String {
+        let n = favorite?.model ?? settings.llm.model
+        return n.isEmpty ? L("未设置模型") : n
+    }
+
+    var body: some View {
         DropdownButton(alignment: .trailing, minWidth: 260, openOnHover: false, items: { items }) { open in
             HStack(spacing: 5) {
-                Image(systemName: model.chosenFavorite == nil ? "cpu" : "star.fill")
+                Image(systemName: favorite == nil ? "cpu" : "star.fill")
                     .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(model.chosenFavorite == nil ? Color.textTertiary : StarButton.yellow)
-                Text(model.chosenModelName.isEmpty ? L("未设置模型") : model.chosenModelName)
+                    .foregroundStyle(favorite == nil ? Color.textTertiary : StarButton.yellow)
+                Text(name)
                     .font(.system(size: 12))
                     .foregroundStyle(Color.textSecondary)
                     .lineLimit(1)
@@ -105,12 +132,11 @@ struct SummaryModelPicker: View {
     }
 
     private var items: [DropdownItem] {
-        let settings = model.settings
         let defaultName = settings.llm.model.isEmpty ? L("未设置模型") : settings.llm.model
         var out: [DropdownItem] = [
             .detailed(defaultName, detail: L("默认 · {0}", settings.currentPreset?.name ?? L("自定义")), icon: "gearshape",
-                      selected: model.chosenFavorite == nil, disabled: !settings.llm.isConfigured) {
-                model.chosenModelID = nil
+                      selected: favorite == nil, disabled: !settings.llm.isConfigured) {
+                selection = nil
             },
             .divider,
         ]
@@ -118,9 +144,8 @@ struct SummaryModelPicker: View {
             out.append(.button(L("在设置的模型列表中点 ☆ 收藏后，可在这里切换"), icon: "star", disabled: true) {})
         } else {
             for fav in settings.favorites {
-                out.append(.detailed(fav.model, detail: fav.providerName, icon: "star.fill",
-                                     selected: model.chosenModelID == fav.id) {
-                    model.chosenModelID = fav.id
+                out.append(.detailed(fav.model, detail: fav.providerName, icon: "star.fill", selected: selection == fav.id) {
+                    selection = fav.id
                 })
             }
         }
