@@ -119,7 +119,9 @@ final class TranscriptTextController: NSObject {
         if firstFill { textView.alphaValue = 0 }
         textView.textStorage?.setAttributedString(document?.attributed ?? NSAttributedString())
         scrollView.syncDocumentWidth()
-        if let lm = textView.layoutManager, let tc = textView.textContainer { lm.ensureLayout(for: tc) }
+        // No forced full layout here: laying out a long transcript in one go blocked the main
+        // thread right after the page opened. Layout stays contiguous (accurate positions up
+        // to whatever is shown or scrolled to) and the rest is done in the background.
         cueRange = nil
         charRange = nil
         hitRanges = model.searchHits.map(\.range)

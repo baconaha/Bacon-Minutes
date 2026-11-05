@@ -403,3 +403,17 @@
 "收藏的模型" = "Modelos favoritos";
 "在模型列表里点 ☆ 收藏常用模型。生成纪要时，可以在每个妙记的纪要页直接切换收藏的模型。" = "Marca con ☆ los modelos que uses en la lista. Después podrás cambiar entre ellos en la pestaña de resumen de cada grabación.";
 "设为默认" = "Usar como predeterminado";
+"前往设置" = "Abrir Ajustes";
+"在设置中填写服务商、API Key 和模型，或收藏一个模型" = "Indica un proveedor, una clave de API y un modelo en Ajustes, o marca un modelo como favorito";
+"生成纪要" = "Resumir";
+"为 {0} 个妙记生成智能纪要" = "Generar resúmenes IA de {0} grabaciones";
+"在后台逐个生成，同时最多 {0} 个。期间可以照常使用，关闭窗口也会继续。" = "Se generan uno tras otro en segundo plano, como máximo {0} a la vez. Puedes seguir trabajando, y cerrar la ventana no los detiene.";
+"其中 {0} 个还没有字幕，会跳过" = "{0} aún no tienen subtítulos y se omitirán";
+"其中 {0} 个已经在生成或排队，会跳过" = "{0} ya se están resumiendo o están en cola y se omitirán";
+"已有纪要的 {0} 个也再生成一份（原有版本会保留）" = "Resumir también las {0} que ya tienen resumen (se conservan las versiones existentes)";
+"还没有设置模型。" = "Aún no hay ningún modelo configurado.";
+"开始生成" = "Empezar";
+"生成 {0} 个" = "Resumir {0}";
+"已开始为 {0} 个妙记生成纪要" = "Se empezaron a resumir {0} grabaciones";
+"纪要排队中" = "En cola";
+"排队中，前面的纪要生成完就开始…" = "En cola: empezará en cuanto terminen los resúmenes anteriores…";

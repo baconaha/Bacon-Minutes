@@ -32,11 +32,69 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         MainActor.assumeIsolated { AppIconStore.shared.applyToDock() }
     }
 
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+    /// Closing the window keeps the app running (like most Mac apps); ⌘Q quits.
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+
+    /// Dock icon click with the window hidden: show it again.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if flag { return true }
+        MainActor.assumeIsolated { MainWindowRegistry.show() }
+        return false
+    }
+}
+
+/// The one main window, for bringing it back from the Dock after it was closed (hidden).
+@MainActor
+enum MainWindowRegistry {
+    static weak var window: NSWindow?
+    /// Set when the close button hid the window (rather than SwiftUI closing it).
+    static var hidden = false
+    /// Opens the window scene again if it was really closed.
+    static var reopen: (() -> Void)?
+
+    static func show() {
+        if hidden, let w = window {
+            hidden = false
+            w.makeKeyAndOrderFront(nil)
+        } else {
+            reopen?()
+        }
+        NSApp.activate()
+    }
+}
+
+/// Sits in front of SwiftUI's window delegate: turns "close" into "hide" and forwards
+/// everything else unchanged.
+final class WindowCloseInterceptor: NSObject {
+    private weak var original: NSWindowDelegate?
+    private let onClose: (NSWindow) -> Void
+
+    init(original: NSWindowDelegate?, onClose: @escaping (NSWindow) -> Void) {
+        self.original = original
+        self.onClose = onClose
+    }
+
+    override func responds(to aSelector: Selector!) -> Bool {
+        if super.responds(to: aSelector) { return true }
+        return original?.responds(to: aSelector) ?? false
+    }
+
+    override func forwardingTarget(for aSelector: Selector!) -> Any? {
+        if let original, original.responds(to: aSelector) { return original }
+        return super.forwardingTarget(for: aSelector)
+    }
+}
+
+extension WindowCloseInterceptor: NSWindowDelegate {
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        onClose(sender)
+        return false
+    }
 }
 
 struct RootView: View {
     @Bindable var app: AppModel
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         ZStack {
@@ -47,14 +105,19 @@ struct RootView: View {
                     .transition(.opacity)
             case .detail:
                 if let detail = app.detail {
+                    // A plain cross-fade: scaling or moving a page that holds AppKit views
+                    // (the video layer, the transcript text view) re-renders them every frame,
+                    // which flickered and stalled.
                     DetailView(model: detail, app: app)
                         .id(detail.minute.id)
-                        .transition(.asymmetric(
-                            insertion: .opacity.combined(with: .scale(scale: 0.985)).combined(with: .offset(y: 6)),
-                            removal: .opacity))
+                        .transition(.opacity)
                 }
             }
 
+            if let ids = app.batchSummaryTarget {
+                BatchSummaryDialog(app: app, ids: ids)
+                    .zIndex(10)
+            }
             if let review = app.importReview {
                 ImportReviewDialog(app: app, review: review)
                     .id(review.id)
@@ -94,6 +157,10 @@ struct RootView: View {
         .animation(.easeInOut(duration: 0.2), value: app.toast)
         .sheet(isPresented: $app.showImportDialog) {
             ImportDialog(app: app)
+        }
+        .onAppear {
+            let open = openWindow
+            MainWindowRegistry.reopen = { open(id: "main") }
         }
         .background(WindowAccessor { window in
             app.attachWindow(window)

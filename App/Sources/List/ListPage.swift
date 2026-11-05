@@ -525,6 +525,12 @@ private struct ListContent: View {
                     Text("·").foregroundStyle(Color.textTertiary)
                     Button(L("彻底删除")) { app.deleteForever(selectedHere) }.buttonStyle(TextLinkButtonStyle())
                 } else {
+                    Button(L("生成纪要")) {
+                        // In list order, so the queue runs top to bottom.
+                        app.batchSummaryTarget = items.map(\.id).filter { selectedHere.contains($0) }
+                    }
+                    .buttonStyle(TextLinkButtonStyle())
+                    Text("·").foregroundStyle(Color.textTertiary)
                     Button(L("移动到文件夹")) { app.moveTarget = selectedHere }.buttonStyle(TextLinkButtonStyle())
                     Text("·").foregroundStyle(Color.textTertiary)
                     Button(L("移到回收站")) { app.requestMoveToTrash(selectedHere) }.buttonStyle(TextLinkButtonStyle())

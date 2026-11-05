@@ -259,6 +259,8 @@ struct Minute: Codable, Identifiable, Hashable {
     var storage: MediaStorage
     /// Summary version shown when the minute opens.
     var activeSummaryID: UUID?
+    /// Right-hand tab shown when the minute was last left ("summary" / "transcript").
+    var lastTab: String?
 
     var hasTranscript: Bool { srtFileName != nil }
 
@@ -284,12 +286,13 @@ struct Minute: Codable, Identifiable, Hashable {
         self.mediaSize = nil
         self.storage = .linked
         self.activeSummaryID = nil
+        self.lastTab = nil
     }
 
     enum CodingKeys: String, CodingKey {
         case id, title, createdAt, lastOpenedAt, duration, mediaBookmark, mediaPath, mediaFileName, isAudioOnly
         case srtBookmark, srtFileName, cueCount, speakerCount, hasSummary, deletedAt, lastPlaybackPosition
-        case folderID, mediaSize, storage, activeSummaryID
+        case folderID, mediaSize, storage, activeSummaryID, lastTab
     }
 
     init(from decoder: Decoder) throws {
@@ -314,6 +317,7 @@ struct Minute: Codable, Identifiable, Hashable {
         mediaSize = try c.decodeIfPresent(Int64.self, forKey: .mediaSize)
         storage = try c.decodeIfPresent(MediaStorage.self, forKey: .storage) ?? .linked
         activeSummaryID = try c.decodeIfPresent(UUID.self, forKey: .activeSummaryID)
+        lastTab = try c.decodeIfPresent(String.self, forKey: .lastTab)
     }
 }
 
