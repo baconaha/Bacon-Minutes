@@ -285,3 +285,11 @@
 "硅基流动" = "SiliconFlow";
 "Ollama（本地）" = "Ollama (local)";
 "LM Studio（本地）" = "LM Studio (local)";
+"删除 {0} 个文件夹？" = "Supprimer {0} dossiers ?";
+"这些文件夹里的 {0} 个妙记不会被删除，仍会保留在「全部」中。" = "Les enregistrements de ces dossiers ({0}) ne seront pas supprimés et resteront dans « Tout ».";
+"这些文件夹都是空的。" = "Ces dossiers sont vides.";
+"已删除 {0} 个文件夹" = "{0} dossiers supprimés";
+"删除 {0} 个文件夹" = "Supprimer {0} dossiers";
+"取消选择" = "Désélectionner";
+"百度千帆（文心）" = "Baidu Qianfan (ERNIE)";
+"腾讯混元" = "Tencent Hunyuan";

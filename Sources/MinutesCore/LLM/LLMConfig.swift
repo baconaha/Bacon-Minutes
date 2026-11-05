@@ -70,10 +70,13 @@ struct ProviderPreset: Identifiable, Hashable {
         ProviderPreset(id: "openai", name: "OpenAI", protocolKind: .openAI, baseURL: "https://api.openai.com/v1", defaultModel: ""),
         ProviderPreset(id: "anthropic", name: "Anthropic", protocolKind: .anthropic, baseURL: "https://api.anthropic.com", defaultModel: "claude-opus-5-5"),
         ProviderPreset(id: "gemini", name: "Google Gemini", protocolKind: .openAI, baseURL: "https://generativelanguage.googleapis.com/v1beta/openai", defaultModel: ""),
-        ProviderPreset(id: "deepseek", name: "DeepSeek", protocolKind: .openAI, baseURL: "https://api.deepseek.com/v1", defaultModel: ""),
-        ProviderPreset(id: "dashscope", name: "阿里云百炼（通义）", protocolKind: .openAI, baseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1", defaultModel: ""),
-        ProviderPreset(id: "moonshot", name: "月之暗面 Kimi", protocolKind: .openAI, baseURL: "https://api.moonshot.cn/v1", defaultModel: ""),
+        // Chinese providers, all through their OpenAI-compatible endpoints.
+        ProviderPreset(id: "deepseek", name: "DeepSeek", protocolKind: .openAI, baseURL: "https://api.deepseek.com/v1", defaultModel: "deepseek-chat"),
+        ProviderPreset(id: "dashscope", name: "阿里云百炼（通义）", protocolKind: .openAI, baseURL: "https://dashscope.aliyuncs.com/compatible-mode/v1", defaultModel: "qwen-plus"),
         ProviderPreset(id: "zhipu", name: "智谱 GLM", protocolKind: .openAI, baseURL: "https://open.bigmodel.cn/api/paas/v4", defaultModel: ""),
+        ProviderPreset(id: "moonshot", name: "月之暗面 Kimi", protocolKind: .openAI, baseURL: "https://api.moonshot.cn/v1", defaultModel: ""),
+        ProviderPreset(id: "qianfan", name: "百度千帆（文心）", protocolKind: .openAI, baseURL: "https://qianfan.baidubce.com/v2", defaultModel: "ernie-4.0-turbo-128k"),
+        ProviderPreset(id: "hunyuan", name: "腾讯混元", protocolKind: .openAI, baseURL: "https://tokenhub.tencentmaas.com/v1", defaultModel: "hy3-preview"),
         ProviderPreset(id: "volcengine", name: "火山方舟（豆包）", protocolKind: .openAI, baseURL: "https://ark.cn-beijing.volces.com/api/v3", defaultModel: ""),
         ProviderPreset(id: "siliconflow", name: "硅基流动", protocolKind: .openAI, baseURL: "https://api.siliconflow.cn/v1", defaultModel: ""),
         ProviderPreset(id: "openrouter", name: "OpenRouter", protocolKind: .openAI, baseURL: "https://openrouter.ai/api/v1", defaultModel: ""),
@@ -171,6 +174,20 @@ struct CompatFlags: Codable, Equatable {
     var useMaxCompletionTokens = false
     var dropTemperature = false
     var dropFallbacks = false
+    /// Set when a DashScope model rejects `enable_thinking: false` (thinking-only models).
+    var dropEnableThinking = false
+
+    init() {}
+
+    /// Flags saved by older builds lack the newer keys.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        dropResponseFormat = try c.decodeIfPresent(Bool.self, forKey: .dropResponseFormat) ?? false
+        useMaxCompletionTokens = try c.decodeIfPresent(Bool.self, forKey: .useMaxCompletionTokens) ?? false
+        dropTemperature = try c.decodeIfPresent(Bool.self, forKey: .dropTemperature) ?? false
+        dropFallbacks = try c.decodeIfPresent(Bool.self, forKey: .dropFallbacks) ?? false
+        dropEnableThinking = try c.decodeIfPresent(Bool.self, forKey: .dropEnableThinking) ?? false
+    }
 }
 
 protocol CompatStore: AnyObject {

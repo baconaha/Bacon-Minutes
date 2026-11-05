@@ -58,13 +58,24 @@ struct ConfirmRequest: Identifiable {
 }
 
 enum ListSort: String, CaseIterable, Identifiable {
-    case created, opened
+    case created, opened, name
     var id: String { rawValue }
 
+    /// Menu entry.
     var title: String {
         switch self {
         case .created: return L("最近创建")
         case .opened: return L("最近打开")
+        case .name: return L("名称")
+        }
+    }
+
+    /// Column header while this sort is active.
+    var headerTitle: String {
+        switch self {
+        case .created: return L("创建时间")
+        case .opened: return L("最近打开")
+        case .name: return L("名称")
         }
     }
 }
@@ -103,6 +114,8 @@ final class AppModel {
     var folderInfoTarget: UUID?
     /// Folder whose name is being edited inline in the sidebar.
     var renamingFolderID: UUID?
+    /// Folders picked with a drag across the sidebar (or ⌘-click), for batch actions.
+    var folderSelection: Set<UUID> = []
 
     var isDialogOpen: Bool { confirmRequest != nil || moveTarget != nil || folderInfoTarget != nil }
 
@@ -204,6 +217,7 @@ final class AppModel {
         let f = library.createFolder(named: name)
         section = .folder(f.id)
         selection = []
+        folderSelection = []
         renamingFolderID = f.id
     }
 
@@ -225,6 +239,28 @@ final class AppModel {
             if self.section == .folder(id) { self.section = .all }
             self.library.deleteFolder(id)
             self.showToast(L("已删除文件夹"))
+        }
+    }
+
+    /// Several folders at once (sidebar drag-select); one folder uses the single-folder wording.
+    func requestDeleteFolders(_ ids: Set<UUID>) {
+        let targets = library.folders.filter { ids.contains($0.id) }
+        guard !targets.isEmpty else { return }
+        if targets.count == 1 {
+            requestDeleteFolder(targets[0].id)
+            return
+        }
+        let count = targets.reduce(0) { $0 + library.stats(inFolder: $1.id).count }
+        confirmRequest = ConfirmRequest(
+            title: L("删除 {0} 个文件夹？", targets.count),
+            message: count > 0 ? L("这些文件夹里的 {0} 个妙记不会被删除，仍会保留在「全部」中。", count) : L("这些文件夹都是空的。"),
+            confirmTitle: L("删除文件夹")
+        ) { [weak self] in
+            guard let self else { return }
+            if case .folder(let current) = self.section, ids.contains(current) { self.section = .all }
+            for f in targets { self.library.deleteFolder(f.id) }
+            self.folderSelection.subtract(ids)
+            self.showToast(L("已删除 {0} 个文件夹", targets.count))
         }
     }
 
@@ -297,10 +333,14 @@ final class AppModel {
         case .recent:
             items.sort { ($0.lastOpenedAt ?? .distantPast) > ($1.lastOpenedAt ?? .distantPast) }
         case .all, .folder:
-            if sort == .opened {
+            switch sort {
+            case .opened:
                 items.sort { ($0.lastOpenedAt ?? .distantPast, $0.createdAt) > ($1.lastOpenedAt ?? .distantPast, $1.createdAt) }
-            } else {
+            case .created:
                 items.sort { $0.createdAt > $1.createdAt }
+            case .name:
+                // Finder order: "第2讲" before "第10讲", case and width ignored.
+                items.sort { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
             }
         }
         return items
@@ -594,6 +634,17 @@ final class AppModel {
             }
         }
 
+        // Folders selected in the sidebar: ⌫ deletes them (after confirming), Esc clears.
+        if !folderSelection.isEmpty, !editing {
+            if code == 53 {
+                folderSelection = []
+                return true
+            }
+            if code == 51 || code == 117, mods.isEmpty || mods == .command {
+                requestDeleteFolders(folderSelection)
+                return true
+            }
+        }
         if code == 51, mods == .command, !editing, !selection.isEmpty, section != .trash {
             requestMoveToTrash(selection)
             return true

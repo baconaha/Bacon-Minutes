@@ -231,6 +231,9 @@ final class LLMClient {
             if request.jsonMode && !flags.dropResponseFormat {
                 body["response_format"] = ["type": "json_object"]
             }
+            if Self.sendsEnableThinking(config: config, flags: flags) {
+                body["enable_thinking"] = false
+            }
         case .anthropic:
             body["model"] = model
             body["max_tokens"] = request.maxTokens
@@ -262,10 +265,11 @@ final class LLMClient {
     // MARK: Downgrades (§7.4)
 
     enum DowngradeStep: CaseIterable {
-        case responseFormat, maxCompletionTokens, temperature, fallbacks
+        case enableThinking, responseFormat, maxCompletionTokens, temperature, fallbacks
 
         var keywords: [String] {
             switch self {
+            case .enableThinking: return ["enable_thinking", "thinking"]
             case .responseFormat: return ["response_format", "json_object", "json mode"]
             case .maxCompletionTokens: return ["max_tokens", "max_completion_tokens"]
             case .temperature: return ["temperature"]
@@ -274,10 +278,19 @@ final class LLMClient {
         }
     }
 
+    /// Alibaba DashScope: open-source Qwen3 models think by default and then refuse non-streaming
+    /// calls, so requests ask for no thinking (dropped again if a thinking-only model rejects it).
+    static func sendsEnableThinking(config: LLMConfig, flags: CompatFlags) -> Bool {
+        guard config.protocolKind == .openAI, !flags.dropEnableThinking else { return false }
+        let host = URL(string: normalizedBase(config.baseURL))?.host?.lowercased() ?? ""
+        return host.contains("dashscope")
+    }
+
     static func nextFlags(after flags: CompatFlags, message: String, request: LLMRequest, config: LLMConfig) -> CompatFlags? {
         let openAIStyle = config.protocolKind != .anthropic
         func applicable(_ step: DowngradeStep) -> Bool {
             switch step {
+            case .enableThinking: return sendsEnableThinking(config: config, flags: flags)
             case .responseFormat: return openAIStyle && request.jsonMode && !flags.dropResponseFormat
             case .maxCompletionTokens: return openAIStyle && !flags.useMaxCompletionTokens
             case .temperature: return config.temperatureEnabled && !flags.dropTemperature
@@ -287,9 +300,12 @@ final class LLMClient {
         let candidates = DowngradeStep.allCases.filter(applicable)
         guard !candidates.isEmpty else { return nil }
         let lower = message.lowercased()
-        let step = candidates.first { s in s.keywords.contains { lower.contains($0) } } ?? candidates[0]
+        // enable_thinking is only dropped when the error names it; otherwise try the others first.
+        let step = candidates.first { s in s.keywords.contains { lower.contains($0) } }
+            ?? candidates.first { $0 != .enableThinking } ?? candidates[0]
         var next = flags
         switch step {
+        case .enableThinking: next.dropEnableThinking = true
         case .responseFormat: next.dropResponseFormat = true
         case .maxCompletionTokens: next.useMaxCompletionTokens = true
         case .temperature: next.dropTemperature = true
@@ -346,7 +362,10 @@ final class LLMClient {
     private static func errorText(_ any: Any) -> String? {
         if let s = any as? String { return s }
         if let d = any as? [String: Any] {
-            if let m = d["message"] as? String { return m }
+            // OpenAI style, then Baidu ("error_msg") and other Chinese providers' field names.
+            for key in ["message", "error_msg", "errmsg", "msg"] {
+                if let m = d[key] as? String, !m.isEmpty { return m }
+            }
             if let inner = d["error"] { return errorText(inner) }
         }
         return nil
@@ -357,7 +376,7 @@ final class LLMClient {
         if let obj = try? JSONSerialization.jsonObject(with: data) {
             if let d = obj as? [String: Any] {
                 if let e = d["error"], let m = errorText(e) { return m }
-                if let m = d["message"] as? String { return m }
+                if let m = errorText(d) { return m }
                 if let m = d["detail"] as? String { return m }
             } else if let arr = obj as? [[String: Any]], let first = arr.first {
                 if let e = first["error"], let m = errorText(e) { return m }
